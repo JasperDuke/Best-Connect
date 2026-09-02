@@ -1,13 +1,22 @@
 const OpenAI = require('openai');
 const { DEFAULT_AI_SETTINGS } = require('./aiSettings');
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+let client = null;
+
+function getOpenAiClient() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is not configured');
+  }
+  if (!client) {
+    client = new OpenAI({ apiKey });
+  }
+  return client;
+}
 
 async function createChatCompletionWithFallback(params) {
   try {
-    return await client.chat.completions.create(params);
+    return await getOpenAiClient().chat.completions.create(params);
   } catch (err) {
     if (err && err.code === 'unsupported_value' && err.param === 'temperature') {
       const { temperature, ...retryParams } = params;
@@ -15,7 +24,7 @@ async function createChatCompletionWithFallback(params) {
         `Temperature ${temperature} unsupported for model ${params.model}; retrying with default temperature.`,
       );
 
-      return await client.chat.completions.create(retryParams);
+      return await getOpenAiClient().chat.completions.create(retryParams);
     }
 
     throw err;
