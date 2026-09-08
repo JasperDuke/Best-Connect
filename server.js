@@ -3228,7 +3228,37 @@ app.use((req, res, next) => {
   next();
 });
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public')));
+
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const INDEX_HTML_PATH = path.join(PUBLIC_DIR, 'index.html');
+const STATIC_ASSET_VERSION = (
+  process.env.STATIC_ASSET_VERSION ||
+  require('./package.json').version ||
+  '1'
+).trim();
+
+function renderIndexHtml() {
+  const template = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
+  return template.replaceAll('__STATIC_VERSION__', STATIC_ASSET_VERSION);
+}
+
+app.get(['/', '/index.html'], (req, res) => {
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.type('html').send(renderIndexHtml());
+});
+
+app.use(express.static(PUBLIC_DIR, {
+  index: false,
+  setHeaders(res, filePath) {
+    if (/\.html$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 app.use('/uploads', express.static(getUploadsRoot()));
 app.use('/api/hr', hrPositionsRoutes);
 app.use('/api/hr', hrAiInterviewRoutes);
