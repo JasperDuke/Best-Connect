@@ -2362,8 +2362,61 @@
 .profile-summary-grid {
   display: grid;
   gap: 20px;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-bottom: 24px;
+}
+
+@media (max-width: 1100px) {
+  .profile-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profile-summary-item dd.profile-company-value {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.company-units-list {
+  display: grid;
+  gap: 10px;
+}
+
+.company-unit-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.company-assignments-table-wrap {
+  overflow-x: auto;
+}
+
+.company-assignments-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.company-assignments-table th,
+.company-assignments-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+.company-assignments-table th {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #475569;
 }
 
 .profile-summary-list {
@@ -4875,83 +4928,22 @@
     }
 
 
-    /* Login card visual refinements scoped in-page */
+    /* Login page — minimal overrides (base styles in material-theme.css) */
     .login-card {
       position: relative;
-      background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.9));
-      border: 1px solid rgba(148, 163, 184, 0.22);
     }
 
     .login-card::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      border-radius: inherit;
-      background: linear-gradient(145deg, rgba(58, 111, 248, 0.08), transparent 35%, rgba(103, 80, 164, 0.08));
-      pointer-events: none;
-    }
-
-    .login-card-header {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      gap: 12px;
-      text-align: center;
-    }
-
-    .brand-logo {
-      width: 118px;
-    }
-
-    .login-kicker {
-      margin: 0;
-      text-transform: uppercase;
-      letter-spacing: 0.13em;
-      font-size: 0.72rem;
-      font-weight: 800;
-      color: #334155;
-    }
-
-    .login-title {
-      font-weight: 750;
-    }
-
-    .login-security-strip {
-      display: flex;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .login-security-item {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: rgba(58, 111, 248, 0.09);
-      color: #1e40af;
-      font-size: 0.78rem;
-      font-weight: 700;
-    }
-
-    .login-security-item .material-symbols-rounded {
-      font-size: 1rem;
+      display: none;
     }
 
     .form-stack {
       position: relative;
-      z-index: 1;
-    }
-
-    .login-help-text {
-      margin: -4px 0 0;
-      text-align: center;
-      font-size: 0.82rem;
-      color: #475569;
     }
 
   </style>
+  <link rel="stylesheet" href="app-ui-refresh.css">
+  <link rel="stylesheet" href="vendor/cropperjs/cropper.min.css">
 </head>
 <body class="app-shell">
   <!-- Login Experience -->
@@ -4959,50 +4951,41 @@
     <div class="landing-shell">
       <section class="welcome-panel">
         <div class="welcome-header">
-          <p class="welcome-eyebrow">
-            <span class="material-symbols-rounded">workspace_premium</span>
-            People-first portal
-          </p>
+          <p class="welcome-eyebrow">Workforce platform</p>
           <h1 id="welcomePortalName" class="welcome-title">Brillar HR Portal</h1>
-          <p class="welcome-copy">A cohesive workspace for leave, performance, recruitment, and talent experiences — all with Brillar's modern material-inspired feel.</p>
+          <p class="welcome-copy">One connected place for your team — leave, performance, hiring, and everyday HR.</p>
         </div>
-        <div class="welcome-badges">
-          <span class="welcome-badge">
-            <span class="material-symbols-rounded">verified_user</span>
-            Secure single sign-on
-          </span>
-          <span class="welcome-badge success">
-            <span class="material-symbols-rounded">bolt</span>
-            AI-assisted workflows
-          </span>
-        </div>
-        <div class="feature-pills">
-          <span class="feature-pill"><span class="material-symbols-rounded">calendar_month</span>Time off & attendance</span>
-          <span class="feature-pill"><span class="material-symbols-rounded">workspace_premium</span>Performance reviews</span>
-          <span class="feature-pill"><span class="material-symbols-rounded">diversity_3</span>Talent & hiring</span>
-          <span class="feature-pill"><span class="material-symbols-rounded">insights</span>HR analytics</span>
-        </div>
+        <figure class="welcome-hero">
+          <img
+            src="login-hero.png"
+            alt="Illustration of people connected across a global network"
+            class="welcome-hero-image"
+            width="680"
+            height="680"
+            loading="eager"
+            decoding="async"
+          >
+        </figure>
+        <ul class="welcome-features" aria-label="Platform capabilities">
+          <li>Time off and attendance</li>
+          <li>Performance reviews</li>
+          <li>Talent and hiring</li>
+          <li>HR analytics and reporting</li>
+        </ul>
       </section>
 
       <div class="login-card">
         <div class="login-card-header">
           <img id="loginBrandLogo" src="logo.png" alt="Organization logo" class="brand-logo">
-          <p class="login-kicker">Secure workforce access</p>
-          <div>
-            <h1 id="loginPortalName" class="login-title">Brillar HR Portal</h1>
-            <p class="login-subtitle">Sign in to manage leave, approvals, performance cycles, and talent workflows with confidence.</p>
-          </div>
-          <div class="login-security-strip" aria-hidden="true">
-            <span class="login-security-item"><span class="material-symbols-rounded">verified_user</span>Enterprise security</span>
-            <span class="login-security-item"><span class="material-symbols-rounded">encrypted</span>Encrypted sessions</span>
-          </div>
+          <h1 id="loginPortalName" class="login-title">Sign in</h1>
+          <p class="login-subtitle">Use your work email to access the portal.</p>
         </div>
         <form id="loginForm" class="form-stack">
           <div class="md-field">
-            <label class="md-label" for="loginEmail">Work Email</label>
+            <label class="md-label" for="loginEmail">Work email</label>
             <div class="md-input-wrapper">
               <span class="material-symbols-rounded">mail</span>
-              <input id="loginEmail" name="email" type="email" placeholder="Enter Your Email" required class="md-input">
+              <input id="loginEmail" name="email" type="email" placeholder="you@company.com" required class="md-input">
             </div>
           </div>
           <div class="md-field">
@@ -5013,14 +4996,12 @@
             </div>
           </div>
           <button type="submit" class="md-button md-button--filled">
-            <span class="material-symbols-rounded">login</span>
-            Sign In
+            Sign in
           </button>
           <button id="msLoginBtn" type="button" class="md-button md-button--outlined">
-            <span class="material-symbols-rounded">account_circle</span>
             Sign in with Microsoft 365
           </button>
-          <p class="login-help-text">Need help signing in? Contact your HR administrator or IT helpdesk.</p>
+          <p class="login-help-text">Contact your HR administrator if you need access.</p>
           <div id="loginError" class="form-error hidden"></div>
         </form>
       </div>
@@ -5035,7 +5016,7 @@
           <img id="appBrandLogo" src="https://static.wixstatic.com/media/34647d_4924e46631c3463abed06f9e3147eba3~mv2.png" alt="Organization logo">
           <div class="brand-text">
             <span id="appPortalName" class="brand-title">Brillar HR Portal</span>
-            <span class="brand-tagline">Modern, people-first HR experiences</span>
+            <span class="brand-tagline">Workforce management</span>
           </div>
         </div>
 
@@ -5078,10 +5059,6 @@
         </div>
 
         <div class="app-actions">
-          <button id="changePassBtn" type="button" class="app-action-btn app-action-btn--ghost hidden">
-            <span class="material-symbols-rounded">key</span>
-            Change Password
-          </button>
           <button id="logoutBtn" type="button" onclick="logout()" class="app-action-btn app-action-btn--alert hidden">
             <span class="material-symbols-rounded">logout</span>
             Logout
@@ -5172,74 +5149,162 @@
             <span class="material-symbols-rounded">account_circle</span>
             My Profile
           </h2>
-          <p class="panel-subtitle">Review your personal information, update contact details, and keep emergency information accurate.</p>
+          <p class="panel-subtitle">View your information, personalize your photo, and review your performance summary.</p>
         </div>
 
-        <div class="card-grid profile-summary-grid">
-          <div class="md-card">
-            <div class="card-title">
-              <span class="material-symbols-rounded">badge</span>
-              Profile Overview
+        <div class="profile-page">
+        <div class="profile-identity-card md-card">
+          <aside class="profile-identity-card__sidebar">
+            <div class="profile-identity-card__photo-box">
+              <div class="profile-avatar-wrap">
+                <div id="profileAvatar" class="profile-avatar">
+                  <span class="material-symbols-rounded profile-avatar__icon">person</span>
+                  <img id="profileAvatarImage" class="profile-avatar__image hidden" alt="">
+                </div>
+                <button type="button" id="profileEditPhotoBtn" class="profile-avatar-edit" aria-label="Change photo" title="Change photo">
+                  <span class="material-symbols-rounded">edit</span>
+                </button>
+              </div>
+              <button type="button" id="profileChangePasswordBtn" class="profile-change-pass-btn">
+                <span class="material-symbols-rounded">key</span>
+                Change password
+              </button>
+              <button type="button" id="profileRemovePhotoBtn" class="md-button md-button--text md-button--small hidden">
+                Remove photo
+              </button>
+              <input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp" class="hidden">
             </div>
-            <dl class="profile-summary-list">
-              <div class="profile-summary-item">
-                <dt>Name</dt>
-                <dd id="profileSummaryName">-</dd>
+          </aside>
+          <div class="profile-identity-card__main">
+            <div class="profile-identity-card__hero">
+              <div class="profile-identity-card__hero-text">
+                <h3 id="profileHeroName" class="profile-identity-card__name">-</h3>
+                <p id="profileHeroTitle" class="profile-identity-card__role">-</p>
               </div>
-              <div class="profile-summary-item">
-                <dt>Work Email</dt>
-                <dd id="profileSummaryEmail">-</dd>
+              <div id="profileStatusBadge" class="profile-status-badge">
+                <span class="material-symbols-rounded">person</span>
+                Active
               </div>
-              <div class="profile-summary-item">
-                <dt>Title</dt>
-                <dd id="profileSummaryTitle">-</dd>
+            </div>
+            <div class="profile-identity-card__overview">
+              <div class="profile-overview-heading">
+                <span class="material-symbols-rounded">badge</span>
+                Profile Overview
               </div>
-              <div class="profile-summary-item">
-                <dt>Department</dt>
-                <dd id="profileSummaryDepartment">-</dd>
+              <div class="profile-overview-grid">
+                <div class="profile-overview-col">
+                  <div class="profile-overview-cell">
+                    <span class="profile-overview-cell__icon" aria-hidden="true">
+                      <span class="material-symbols-rounded">mail</span>
+                    </span>
+                    <div class="profile-overview-cell__body">
+                      <span class="profile-overview-cell__label">Work Email</span>
+                      <span id="profileSummaryEmail" class="profile-overview-cell__value">-</span>
+                    </div>
+                  </div>
+                  <div class="profile-overview-cell">
+                    <span class="profile-overview-cell__icon" aria-hidden="true">
+                      <span class="material-symbols-rounded">corporate_fare</span>
+                    </span>
+                    <div class="profile-overview-cell__body">
+                      <span class="profile-overview-cell__label">Department</span>
+                      <span id="profileSummaryCompany" class="profile-overview-cell__value profile-overview-cell__value--pill">-</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="profile-overview-col">
+                  <div class="profile-overview-cell">
+                    <span class="profile-overview-cell__icon" aria-hidden="true">
+                      <span class="material-symbols-rounded">work</span>
+                    </span>
+                    <div class="profile-overview-cell__body">
+                      <span class="profile-overview-cell__label">Title</span>
+                      <span id="profileSummaryTitle" class="profile-overview-cell__value">-</span>
+                    </div>
+                  </div>
+                  <div class="profile-overview-cell">
+                    <span class="profile-overview-cell__icon" aria-hidden="true">
+                      <span class="material-symbols-rounded">monitor_heart</span>
+                    </span>
+                    <div class="profile-overview-cell__body">
+                      <span class="profile-overview-cell__label">Status</span>
+                      <span id="profileSummaryStatus" class="profile-overview-cell__value">-</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="profile-overview-col">
+                  <div class="profile-overview-cell">
+                    <span class="profile-overview-cell__icon" aria-hidden="true">
+                      <span class="material-symbols-rounded">groups</span>
+                    </span>
+                    <div class="profile-overview-cell__body">
+                      <span class="profile-overview-cell__label">Team / Project</span>
+                      <span id="profileSummaryDepartment" class="profile-overview-cell__value">-</span>
+                    </div>
+                  </div>
+                  <div class="profile-overview-cell">
+                    <span class="profile-overview-cell__icon" aria-hidden="true">
+                      <span class="material-symbols-rounded">supervisor_account</span>
+                    </span>
+                    <div class="profile-overview-cell__body">
+                      <span class="profile-overview-cell__label">Reporting Manager</span>
+                      <span id="profileSummaryManager" class="profile-overview-cell__value">-</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="profile-summary-item">
-                <dt>Reporting Manager</dt>
-                <dd id="profileSummaryManager">-</dd>
-              </div>
-              <div class="profile-summary-item">
-                <dt>Status</dt>
-                <dd id="profileSummaryStatus">-</dd>
-              </div>
-            </dl>
+            </div>
+          </div>
+        </div>
+
+        <div class="profile-action-grid">
+          <div class="md-card profile-action-card" id="profilePerformanceCard">
+            <div class="card-title">
+              <span class="material-symbols-rounded">workspace_premium</span>
+              My Performance Review
+            </div>
+            <div id="profilePerformanceContent" class="profile-performance">
+              <p class="text-muted">Loading performance review...</p>
+            </div>
+            <div class="profile-performance-actions">
+              <button type="button" id="profileOpenPerformanceBtn" class="md-button md-button--outlined md-button--small">
+                <span class="material-symbols-rounded">open_in_new</span>
+                Open full review
+              </button>
+            </div>
           </div>
 
-          <div class="md-card">
+          <div class="md-card profile-action-card" id="profileLeaveCard">
             <div class="card-title">
               <span class="material-symbols-rounded">account_balance_wallet</span>
               Leave Balances
             </div>
-            <div id="profileLeaveBalances" class="balance-chips profile-balance-chips">
-              <div class="balance-chip chip-annual">
-                <span class="material-symbols-rounded">beach_access</span>
-                <div>
-                  <span class="label">Annual</span>
-                  <strong id="profileBalAnnual">-</strong><span class="unit">days</span>
+            <div id="profileLeaveBalances" class="profile-leave-stack">
+              <div class="profile-leave-row profile-leave-row--annual">
+                <span class="material-symbols-rounded profile-leave-row__icon">beach_access</span>
+                <div class="profile-leave-row__text">
+                  <span class="profile-leave-row__label">Annual</span>
+                  <span class="profile-leave-row__value"><strong id="profileBalAnnual">-</strong> <small>days</small></span>
                 </div>
               </div>
-              <div class="balance-chip chip-casual">
-                <span class="material-symbols-rounded">sunny</span>
-                <div>
-                  <span class="label">Casual</span>
-                  <strong id="profileBalCasual">-</strong><span class="unit">days</span>
+              <div class="profile-leave-row profile-leave-row--casual">
+                <span class="material-symbols-rounded profile-leave-row__icon">sunny</span>
+                <div class="profile-leave-row__text">
+                  <span class="profile-leave-row__label">Casual</span>
+                  <span class="profile-leave-row__value"><strong id="profileBalCasual">-</strong> <small>days</small></span>
                 </div>
               </div>
-              <div class="balance-chip chip-medical">
-                <span class="material-symbols-rounded">medical_information</span>
-                <div>
-                  <span class="label">Medical</span>
-                  <strong id="profileBalMedical">-</strong><span class="unit">days</span>
+              <div class="profile-leave-row profile-leave-row--medical">
+                <span class="material-symbols-rounded profile-leave-row__icon">medical_information</span>
+                <div class="profile-leave-row__text">
+                  <span class="profile-leave-row__label">Medical</span>
+                  <span class="profile-leave-row__value"><strong id="profileBalMedical">-</strong> <small>days</small></span>
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="md-card" id="profilePayslipCard">
+          <div class="md-card profile-action-card" id="profilePayslipCard">
             <div class="card-title">
               <span class="material-symbols-rounded">description</span>
               Payslip
@@ -5256,17 +5321,16 @@
           </div>
         </div>
 
-        <div id="profileGlobalFeedback" class="profile-feedback hidden"></div>
-
-        <div id="profileSections" class="profile-section-grid">
-          <div class="md-card">
-            <div class="card-title">
-              <span class="material-symbols-rounded">info</span>
-              Profile Details
-            </div>
-            <p class="text-muted" style="font-style: italic;">Loading profile information...</p>
-          </div>
+        <div id="profileDetailsWrap" class="profile-details-wrap hidden">
+          <h3 class="profile-page__heading">
+            <span class="material-symbols-rounded">info</span>
+            Profile details
+          </h3>
+          <div id="profileSections" class="profile-section-grid"></div>
         </div>
+        </div>
+
+        <div id="profileGlobalFeedback" class="profile-feedback hidden"></div>
       </section>
 
       <!-- Request Portal Panel -->
@@ -5791,141 +5855,153 @@
       </section>
 
       <!-- Leave Portal Panel -->
-      <section id="portalPanel" class="panel portal-panel">
-        <div class="portal-grid">
-          <div class="md-card card-elevated selection-card">
-            <div class="card-title">
-              <span class="material-symbols-rounded">badge</span>
-              Select Employee
+      <section id="portalPanel" class="panel portal-panel leave-portal">
+        <div class="leave-portal__top">
+          <div class="leave-portal__intro">
+            <h2 class="leave-portal__title">Leave</h2>
+            <p class="leave-portal__subtitle">Check balances, apply for time off, and review your history.</p>
+          </div>
+          <div class="leave-portal__selectors">
+            <div class="leave-portal__field hidden" id="portalCompanyFilterWrap">
+              <label class="leave-portal__label" for="portalCompanyFilter">Department</label>
+              <div class="leave-portal__control">
+                <span class="material-symbols-rounded">corporate_fare</span>
+                <select id="portalCompanyFilter" class="md-select"></select>
+              </div>
             </div>
-            <div class="card-subtitle">Choose a colleague to surface their balances and manage applications.</div>
-            <div class="md-field">
-              <label class="md-label" for="employeeSelect">Employee</label>
-              <div class="md-input-wrapper">
+            <div class="leave-portal__field">
+              <label class="leave-portal__label" for="employeeSelect">Employee</label>
+              <div class="leave-portal__control">
                 <span class="material-symbols-rounded">person</span>
                 <select id="employeeSelect" class="md-select"></select>
               </div>
             </div>
           </div>
+        </div>
 
-          <div class="md-card card-elevated balances-card">
-            <div class="card-title">
-              <span class="material-symbols-rounded">account_balance_wallet</span>
-              Leave Balances
-            </div>
-            <div class="balance-note" title="Monthly accruals are applied automatically; negative balances pause new applications until the next refresh.">
-              <span class="material-symbols-rounded">info</span>
-              <p>Balances refresh automatically with monthly accruals. Negative balances pause new applications until they recover.</p>
-            </div>
-            <div id="balanceDisplay" class="metric-grid">
-              <div class="metric-card metric-annual">
-                <div class="metric-icon">
-                  <span class="material-symbols-rounded">beach_access</span>
-                </div>
-                <div class="metric-content">
-                  <p class="metric-label">Annual</p>
-                  <p class="metric-value"><span id="balAnnual">-</span><span class="metric-unit">days</span></p>
-                </div>
-              </div>
-              <div class="metric-card metric-casual">
-                <div class="metric-icon">
-                  <span class="material-symbols-rounded">sunny</span>
-                </div>
-                <div class="metric-content">
-                  <p class="metric-label">Casual</p>
-                  <p class="metric-value"><span id="balCasual">-</span><span class="metric-unit">days</span></p>
-                </div>
-              </div>
-              <div class="metric-card metric-medical">
-                <div class="metric-icon">
-                  <span class="material-symbols-rounded">medical_information</span>
-                </div>
-                <div class="metric-content">
-                  <p class="metric-label">Medical</p>
-                  <p class="metric-value"><span id="balMedical">-</span><span class="metric-unit">days</span></p>
-                </div>
+        <div class="leave-portal__balances md-card">
+          <div class="leave-portal__balances-head">
+            <h3>Available balance</h3>
+            <p class="leave-portal__balances-note">Refreshes monthly. Requests beyond the negative limit are blocked.</p>
+          </div>
+          <div id="balanceDisplay" class="leave-balance-strip">
+            <div class="leave-balance-chip leave-balance-chip--annual">
+              <span class="leave-balance-chip__icon material-symbols-rounded">beach_access</span>
+              <div class="leave-balance-chip__text">
+                <span class="leave-balance-chip__label">Annual</span>
+                <span class="leave-balance-chip__value"><span id="balAnnual">—</span> <small>days</small></span>
               </div>
             </div>
-            <div id="balanceWarning" class="balance-warning hidden">
-              <span class="material-symbols-rounded">warning</span>
-              <p>One or more balances are negative. Please address overdue leaves or wait for monthly accruals before applying.</p>
+            <div class="leave-balance-chip leave-balance-chip--casual">
+              <span class="leave-balance-chip__icon material-symbols-rounded">sunny</span>
+              <div class="leave-balance-chip__text">
+                <span class="leave-balance-chip__label">Casual</span>
+                <span class="leave-balance-chip__value"><span id="balCasual">—</span> <small>days</small></span>
+              </div>
+            </div>
+            <div class="leave-balance-chip leave-balance-chip--medical">
+              <span class="leave-balance-chip__icon material-symbols-rounded">medical_information</span>
+              <div class="leave-balance-chip__text">
+                <span class="leave-balance-chip__label">Medical</span>
+                <span class="leave-balance-chip__value"><span id="balMedical">—</span> <small>days</small></span>
+              </div>
+            </div>
+          </div>
+          <div id="balanceWarning" class="leave-balance-warning hidden">
+            <span class="material-symbols-rounded">warning</span>
+            <p>One or more balances are negative. Wait for accrual or clear overdue leave before applying.</p>
+          </div>
+        </div>
+
+        <div class="leave-portal__content">
+          <div class="leave-portal__apply md-card">
+            <div class="leave-portal__section-head">
+              <h3>Request leave</h3>
+              <p>Pick dates and submit for approval.</p>
+            </div>
+            <form id="applyForm" class="leave-apply-form">
+              <div class="leave-apply-form__grid">
+                <div class="leave-portal__field">
+                  <label class="leave-portal__label" for="type">Leave type</label>
+                  <div class="leave-portal__control">
+                    <span class="material-symbols-rounded">event_available</span>
+                    <select id="type" name="type" class="md-select"></select>
+                  </div>
+                </div>
+                <div class="leave-portal__field">
+                  <label class="leave-portal__label" for="from">From</label>
+                  <div class="leave-portal__control">
+                    <span class="material-symbols-rounded">calendar_today</span>
+                    <input type="date" id="from" required class="md-input">
+                  </div>
+                </div>
+                <div class="leave-portal__field">
+                  <label class="leave-portal__label" for="to">To</label>
+                  <div class="leave-portal__control">
+                    <span class="material-symbols-rounded">calendar_today</span>
+                    <input type="date" id="to" required class="md-input">
+                  </div>
+                </div>
+              </div>
+              <div class="leave-apply-form__options">
+                <label class="leave-toggle" for="halfDay">
+                  <input type="checkbox" id="halfDay" onchange="toggleHalfDayPeriod()">
+                  <span class="leave-toggle__track"></span>
+                  <span class="leave-toggle__label">Half day only</span>
+                </label>
+                <div class="leave-portal__field leave-portal__field--compact hidden" id="halfDayPeriodWrapper">
+                  <div class="leave-portal__control">
+                    <span class="material-symbols-rounded">schedule</span>
+                    <select id="halfDayPeriod" class="md-select hidden">
+                      <option value="AM">Morning (AM)</option>
+                      <option value="PM">Afternoon (PM)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div id="leaveApplyError" class="leave-apply-error hidden" role="alert"></div>
+              <div class="leave-apply-form__actions">
+                <button type="submit" id="leaveApplyBtn" class="md-button md-button--filled">
+                  <span class="material-symbols-rounded">send</span>
+                  Submit request
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div class="leave-portal__aside md-card">
+            <div class="leave-portal__section-head">
+              <h3>Upcoming holidays</h3>
+              <p id="holidayHighlightsSubtitle">Plan around days off.</p>
+            </div>
+            <div id="holidayHighlights" class="leave-holiday-list">
+              <p class="text-muted">Loading holidays…</p>
             </div>
           </div>
         </div>
 
-        <div class="md-card card-elevated apply-card">
-          <div class="card-title">
-            <span class="material-symbols-rounded">calendar_month</span>
-            Apply for Leave
+        <div class="leave-portal__history md-card">
+          <div class="leave-portal__section-head">
+            <h3>Your requests</h3>
+            <p>Recent leave applications and their status.</p>
           </div>
-          <form id="applyForm" class="modern-form">
-            <div class="form-row">
-              <div class="md-field modern-field">
-                <label class="md-label" for="type">Leave Type</label>
-                <div class="md-input-wrapper large-input">
-                  <span class="material-symbols-rounded">category</span>
-                  <select id="type" name="type" class="md-select"></select>
-                </div>
-              </div>
-              <div class="md-field modern-field">
-                <label class="md-label" for="from">From</label>
-                <div class="md-input-wrapper large-input">
-                  <span class="material-symbols-rounded">event</span>
-                  <input type="date" id="from" required class="md-input">
-                </div>
-              </div>
-              <div class="md-field modern-field">
-                <label class="md-label" for="to">To</label>
-                <div class="md-input-wrapper large-input">
-                  <span class="material-symbols-rounded">event</span>
-                  <input type="date" id="to" required class="md-input">
-                </div>
-              </div>
-            </div>
-            <div class="form-row form-row--split">
-              <label class="toggle" for="halfDay">
-                <input type="checkbox" id="halfDay" onchange="toggleHalfDayPeriod()">
-                <span class="toggle-track"></span>
-                <span class="toggle-label">Half day</span>
-              </label>
-              <div class="md-input-wrapper large-input half-day-period hidden" id="halfDayPeriodWrapper">
-                <span class="material-symbols-rounded">schedule</span>
-                <select id="halfDayPeriod" class="md-select hidden">
-                  <option value="AM">AM</option>
-                  <option value="PM">PM</option>
-                </select>
-              </div>
-            </div>
-            <button type="submit" class="primary-btn">
-              <span class="material-symbols-rounded">send</span>
-              Submit Application
-            </button>
-          </form>
+          <div id="prevLeaves" class="leave-history-list"></div>
         </div>
 
-        <div class="md-card card-elevated">
-          <div class="card-title">
-            <span class="material-symbols-rounded">festival</span>
-            Upcoming Holidays
-          </div>
-          <div class="card-subtitle">Plan around company holidays when submitting leave applications.</div>
-          <div id="holidayHighlights" class="holiday-preview-list">
-            <p class="text-muted" style="font-style: italic;">Loading holidays...</p>
-          </div>
-        </div>
-
-        <div id="reasonModal" class="modal-backdrop hidden">
-          <div class="modal-card">
-            <button type="button" id="modalCloseBtn" class="modal-close material-symbols-rounded">close</button>
-            <h3 class="modal-title">
+        <div id="reasonModal" class="app-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="reasonModalTitle">
+          <div class="app-dialog__backdrop" data-app-dialog-dismiss></div>
+          <div class="app-dialog__panel leave-reason-dialog" role="document">
+            <div class="app-dialog__icon app-dialog__icon--default" aria-hidden="true">
               <span class="material-symbols-rounded">chat</span>
-              Reason for Leave
-            </h3>
-            <form id="reasonForm" class="form-stack">
-              <textarea id="reasonInput" class="md-textarea" placeholder="Add helpful context for your approver" required></textarea>
-              <div class="modal-actions">
-                <button type="submit" class="md-button md-button--filled md-button--small">
-                  <span class="material-symbols-rounded">check_circle</span>
+            </div>
+            <h2 id="reasonModalTitle" class="app-dialog__title">Reason for leave</h2>
+            <p class="app-dialog__message">Add a short note for your approver.</p>
+            <form id="reasonForm" class="leave-reason-form">
+              <textarea id="reasonInput" class="md-textarea" placeholder="e.g. Family event, medical appointment…" required rows="3"></textarea>
+              <div class="leave-reason-form__actions">
+                <button type="button" id="modalCloseBtn" class="md-button md-button--text">Cancel</button>
+                <button type="submit" class="md-button md-button--filled">
+                  <span class="material-symbols-rounded">check</span>
                   Submit
                 </button>
               </div>
@@ -5933,53 +6009,6 @@
           </div>
         </div>
 
-        <div id="changePassModal" class="modal-backdrop hidden">
-          <div class="modal-card">
-            <button type="button" id="passModalClose" class="modal-close material-symbols-rounded">close</button>
-            <h3 class="modal-title">
-              <span class="material-symbols-rounded">key</span>
-              Change Password
-            </h3>
-            <form id="changePassForm" class="form-stack">
-              <div class="md-field">
-                <label class="md-label" for="currentPassword">Current Password</label>
-                <div class="md-input-wrapper">
-                  <span class="material-symbols-rounded">lock_open</span>
-                  <input type="password" id="currentPassword" required class="md-input">
-                </div>
-              </div>
-              <div class="md-field">
-                <label class="md-label" for="newPassword">New Password</label>
-                <div class="md-input-wrapper">
-                  <span class="material-symbols-rounded">password</span>
-                  <input type="password" id="newPassword" required class="md-input">
-                </div>
-              </div>
-              <div class="md-field">
-                <label class="md-label" for="confirmPassword">Confirm Password</label>
-                <div class="md-input-wrapper">
-                  <span class="material-symbols-rounded">verified_user</span>
-                  <input type="password" id="confirmPassword" required class="md-input">
-                </div>
-              </div>
-              <div class="modal-actions">
-                <button type="button" id="cancelPassChange" class="md-button md-button--text md-button--small">Cancel</button>
-                <button type="submit" class="md-button md-button--filled md-button--small">
-                  <span class="material-symbols-rounded">save</span>
-                  Update
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-
-        <div class="md-card card-elevated">
-          <div class="card-title">
-            <span class="material-symbols-rounded">history</span>
-            Previous Leave Applications
-          </div>
-          <div id="prevLeaves"></div>
-        </div>
       </section>
 
       <!-- Learning Hub Panel -->
@@ -6685,77 +6714,83 @@
           </div>
         </div>
 
-        <div class="action-bar card-elevated">
-          <div class="action-bar__primary">
-            <button id="csvUploadBtn" class="md-button md-button--outlined">
-              <span class="material-symbols-rounded">cloud_upload</span>
-              Upload Employees CSV
-            </button>
-            <button id="leaveCsvUploadBtn" class="md-button md-button--outlined">
-              <span class="material-symbols-rounded">event_available</span>
-              Upload Leave CSV
-            </button>
-            <button id="leaveUpdateBtn" class="md-button md-button--outlined" type="button">
-              <span class="material-symbols-rounded">edit_calendar</span>
-              Adjust Leave
-            </button>
-            <button id="addEmployeeBtn" class="md-button md-button--filled">
-              <span class="material-symbols-rounded">person_add</span>
-              Add Employee
-            </button>
+        <div class="emp-manage-controls">
+          <div class="emp-manage-controls__actions">
+            <p class="emp-manage-controls__label">Actions</p>
+            <nav class="emp-manage-controls__nav">
+              <button id="csvUploadBtn" type="button" class="emp-sidebar-btn">
+                <span class="material-symbols-rounded">cloud_upload</span>
+                Upload employees CSV
+              </button>
+              <button id="leaveCsvUploadBtn" type="button" class="emp-sidebar-btn">
+                <span class="material-symbols-rounded">event_available</span>
+                Upload leave CSV
+              </button>
+              <button id="leaveUpdateBtn" type="button" class="emp-sidebar-btn">
+                <span class="material-symbols-rounded">edit_calendar</span>
+                Adjust leave
+              </button>
+              <button id="addEmployeeBtn" type="button" class="emp-sidebar-btn emp-sidebar-btn--primary">
+                <span class="material-symbols-rounded">person_add</span>
+                Add employee
+              </button>
+            </nav>
             <input id="csvInput" type="file" accept=".csv" class="hidden">
             <input id="leaveCsvInput" type="file" accept=".csv" class="hidden">
           </div>
-          <div class="action-bar__secondary">
-            <div class="view-toggle" role="group" aria-label="Toggle employee view">
-              <button id="tableViewBtn" class="view-toggle__btn view-toggle__btn--active" type="button">
-                <span class="material-symbols-rounded">table</span>
-                Table View
-              </button>
-              <button id="cardViewBtn" class="view-toggle__btn" type="button">
-                <span class="material-symbols-rounded">view_agenda</span>
-                Card View
-              </button>
+
+          <div class="emp-manage-controls__filters">
+            <div class="emp-manage-toolbar__search">
+              <span class="material-symbols-rounded">search</span>
+              <input id="empSearchInput" type="search" placeholder="Search employees…" autocomplete="off" spellcheck="false">
             </div>
-            <div class="filter-group">
-              <label class="filter-label" for="employeeStatusFilter">Filters</label>
-              <div class="filter-controls">
-                <select id="employeeStatusFilter" class="md-select filter-select">
-                  <option value="all">All Statuses</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-                <select id="employeeInternFilter" class="md-select filter-select">
-                  <option value="all">All Types</option>
-                  <option value="intern">Interns</option>
-                  <option value="fte">Full-time</option>
-                </select>
-              </div>
-            </div>
-            <div class="search-bar">
-              <label class="filter-label" for="empSearchInput">Search</label>
-              <div class="search-input">
-                <span class="material-symbols-rounded">search</span>
-                <input id="empSearchInput" type="text" placeholder="Search name, title, department..." autocomplete="off" spellcheck="false">
-              </div>
+            <div class="emp-manage-toolbar__filters">
+              <select id="employeeStatusFilter" class="md-select filter-select" aria-label="Filter by status">
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <select id="employeeInternFilter" class="md-select filter-select" aria-label="Filter by type">
+                <option value="all">All types</option>
+                <option value="intern">Interns</option>
+                <option value="fte">Full-time</option>
+              </select>
+              <select id="employeeCompanyFilter" class="md-select filter-select" aria-label="Filter by department">
+                <option value="all">All departments</option>
+                <option value="unassigned">Unassigned</option>
+              </select>
             </div>
           </div>
         </div>
 
-        <div class="md-card card-elevated data-grid-card">
-          <div class="data-grid__header">
-            <div>
-              <p class="data-grid__eyebrow">Employee directory</p>
-              <h3 class="data-grid__title">Responsive DataGrid</h3>
+        <div class="emp-directory-section">
+          <div class="emp-directory-bar">
+            <div class="emp-directory-bar__info">
+              <h3 class="data-grid__title">Employee directory</h3>
+              <p class="emp-directory__subtitle" id="empDirectorySubtitle">Browse and manage your team</p>
             </div>
-            <div class="column-visibility" id="columnTogglePanel">
-              <button type="button" class="md-button md-button--text column-visibility__trigger">
-                <span class="material-symbols-rounded">view_column</span>
-                Columns
-              </button>
-              <div class="column-visibility__menu" aria-label="Toggle columns"></div>
+            <div class="emp-directory-bar__actions">
+              <div class="view-toggle emp-view-toggle" role="group" aria-label="Toggle employee view">
+                <button id="tableViewBtn" class="view-toggle__btn view-toggle__btn--active" type="button">
+                  <span class="material-symbols-rounded">table_rows</span>
+                  Table
+                </button>
+                <button id="cardViewBtn" class="view-toggle__btn" type="button">
+                  <span class="material-symbols-rounded">grid_view</span>
+                  Cards
+                </button>
+              </div>
+              <div class="column-visibility" id="columnTogglePanel">
+                <button type="button" class="md-button md-button--text column-visibility__trigger">
+                  <span class="material-symbols-rounded">view_column</span>
+                  Columns
+                </button>
+                <div class="column-visibility__menu" aria-label="Toggle columns"></div>
+              </div>
             </div>
           </div>
+
+        <div class="md-card card-elevated data-grid-card emp-directory-card">
           <div class="data-grid__toolbar">
             <div class="chip-group" id="dataGridPills"></div>
             <div class="data-grid__controls">
@@ -6780,13 +6815,9 @@
         </div>
 
         <div id="employeeCardWrapper" class="md-card card-elevated employee-card-wrapper hidden">
-          <div class="data-grid__header">
-            <div>
-              <p class="data-grid__eyebrow">Responsive cards</p>
-              <h3 class="data-grid__title">Mobile-first Employee Cards</h3>
-            </div>
-          </div>
-          <div id="employeeCardGrid" class="employee-card-grid"></div>
+          <div id="employeeCardGrid" class="employee-card-grid emp-card-grid"></div>
+          <div id="empCardPagination" class="data-grid__pagination"></div>
+        </div>
         </div>
 
         <div
@@ -7253,6 +7284,18 @@
           <p class="panel-subtitle">Review requests, add remarks, and take action swiftly.</p>
         </div>
 
+        <div class="manager-filter-bar hidden" id="managerDepartmentFilterWrap">
+          <div class="md-field">
+            <label class="md-label" for="managerDepartmentFilter">Department</label>
+            <div class="md-input-wrapper">
+              <span class="material-symbols-rounded">corporate_fare</span>
+              <select id="managerDepartmentFilter" class="md-select">
+                <option value="all">All departments</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <div id="managerAppsList" class="list-stack"></div>
 
         <div class="md-card highlight-card">
@@ -7392,6 +7435,7 @@
 
         <div class="settings-subtab-list" role="tablist" aria-label="Settings sections">
           <button type="button" class="settings-subtab-button settings-subtab-button--active" data-settings-tab="organization" role="tab" aria-selected="true">Organization</button>
+          <button type="button" class="settings-subtab-button" data-settings-tab="companyUnits" role="tab" aria-selected="false">Departments</button>
           <button type="button" class="settings-subtab-button" data-settings-tab="holidays" role="tab" aria-selected="false">Holiday Calendar</button>
           <button type="button" class="settings-subtab-button" data-settings-tab="leaveCycle" role="tab" aria-selected="false">Leave Cycle</button>
           <button type="button" class="settings-subtab-button" data-settings-tab="resetLeave" role="tab" aria-selected="false">Reset</button>
@@ -7440,6 +7484,49 @@
             </button>
           </form>
           <div id="organizationSettingsStatus" class="settings-status text-muted"></div>
+        </div>
+        </div>
+
+        <div class="settings-subtab-panel" data-settings-tab-panel="companyUnits">
+        <div class="md-card">
+          <div class="card-title">
+            <span class="material-symbols-rounded">corporate_fare</span>
+            Departments
+          </div>
+          <p class="card-subtitle">Create departments such as Brillar and Atenxion, then assign employees. Leave views and employee lists can be filtered by department.</p>
+          <div id="companyUnitsList" class="company-units-list"></div>
+          <div class="settings-form__actions" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+            <button type="button" id="addCompanyUnitBtn" class="md-button md-button--outlined md-button--small">
+              <span class="material-symbols-rounded">add</span>
+              Add department
+            </button>
+            <button type="button" id="saveCompanyUnitsBtn" class="md-button md-button--filled md-button--small">
+              <span class="material-symbols-rounded">save</span>
+              Save departments
+            </button>
+          </div>
+          <div id="companyUnitsStatus" class="settings-status text-muted"></div>
+        </div>
+
+        <div class="md-card" style="margin-top:16px;">
+          <div class="card-title">
+            <span class="material-symbols-rounded">group</span>
+            Employee assignments
+          </div>
+          <p class="card-subtitle">Assign each employee to a department. Team / project (e.g. Dev) stays on the employee record separately.</p>
+          <div class="md-field" style="max-width:320px; margin-bottom:12px;">
+            <label class="md-label" for="companyAssignmentSearch">Search employees</label>
+            <div class="md-input-wrapper">
+              <span class="material-symbols-rounded">search</span>
+              <input type="search" id="companyAssignmentSearch" class="md-input" placeholder="Name or email">
+            </div>
+          </div>
+          <div id="companyAssignmentsTableWrap" class="company-assignments-table-wrap"></div>
+          <button type="button" id="saveCompanyAssignmentsBtn" class="md-button md-button--filled md-button--small" style="margin-top:12px;">
+            <span class="material-symbols-rounded">save</span>
+            Save assignments
+          </button>
+          <div id="companyAssignmentsStatus" class="settings-status text-muted"></div>
         </div>
         </div>
 
@@ -8251,6 +8338,87 @@
     </main>
   </div>
 
+  <div id="profileCropModal" class="app-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="profileCropTitle" aria-hidden="true">
+    <div class="app-dialog__backdrop" data-profile-crop-dismiss></div>
+    <div class="app-dialog__panel profile-crop-dialog" role="document">
+      <h2 id="profileCropTitle" class="app-dialog__title">Crop profile photo</h2>
+      <p class="app-dialog__message">Drag to reposition. Pinch or scroll to zoom. Max upload size is 5 MB.</p>
+      <div class="profile-crop-stage">
+        <img id="profileCropImage" class="profile-crop-image" alt="Crop preview">
+      </div>
+      <div class="profile-crop-toolbar">
+        <button type="button" id="profileCropZoomOut" class="md-button md-button--outlined md-button--small" title="Zoom out">
+          <span class="material-symbols-rounded">zoom_out</span>
+        </button>
+        <button type="button" id="profileCropZoomIn" class="md-button md-button--outlined md-button--small" title="Zoom in">
+          <span class="material-symbols-rounded">zoom_in</span>
+        </button>
+        <button type="button" id="profileCropReset" class="md-button md-button--outlined md-button--small" title="Reset">
+          <span class="material-symbols-rounded">restart_alt</span>
+          Reset
+        </button>
+      </div>
+      <div class="app-dialog__actions">
+        <button type="button" id="profileCropCancel" class="md-button md-button--text app-dialog__btn-cancel">Cancel</button>
+        <button type="button" id="profileCropSave" class="md-button md-button--filled app-dialog__btn-confirm">
+          <span class="material-symbols-rounded">check</span>
+          Save photo
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="changePassModal" class="app-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="changePassModalTitle" aria-hidden="true">
+    <div class="app-dialog__backdrop" data-change-pass-dismiss></div>
+    <div class="app-dialog__panel change-pass-dialog" role="document">
+      <div class="app-dialog__icon app-dialog__icon--default" aria-hidden="true">
+        <span class="material-symbols-rounded">key</span>
+      </div>
+      <h2 id="changePassModalTitle" class="app-dialog__title">Change password</h2>
+      <p class="app-dialog__message">Enter your current password, then choose a new one.</p>
+      <form id="changePassForm" class="change-pass-form">
+        <div class="md-field">
+          <label class="md-label" for="currentPassword">Current password</label>
+          <div class="md-input-wrapper">
+            <span class="material-symbols-rounded">lock_open</span>
+            <input type="password" id="currentPassword" required class="md-input" autocomplete="current-password">
+          </div>
+        </div>
+        <div class="md-field">
+          <label class="md-label" for="newPassword">New password</label>
+          <div class="md-input-wrapper">
+            <span class="material-symbols-rounded">password</span>
+            <input type="password" id="newPassword" required class="md-input" autocomplete="new-password">
+          </div>
+        </div>
+        <div class="md-field">
+          <label class="md-label" for="confirmPassword">Confirm new password</label>
+          <div class="md-input-wrapper">
+            <span class="material-symbols-rounded">verified_user</span>
+            <input type="password" id="confirmPassword" required class="md-input" autocomplete="new-password">
+          </div>
+        </div>
+        <div class="app-dialog__actions">
+          <button type="button" id="cancelPassChange" class="md-button md-button--text app-dialog__btn-cancel">Cancel</button>
+          <button type="submit" class="md-button md-button--filled app-dialog__btn-confirm">
+            <span class="material-symbols-rounded">save</span>
+            Update password
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="appDialog" class="app-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle" aria-hidden="true">
+    <div class="app-dialog__backdrop" data-app-dialog-dismiss></div>
+    <div class="app-dialog__panel" role="document">
+      <div id="appDialogIcon" class="app-dialog__icon" aria-hidden="true"></div>
+      <h2 id="appDialogTitle" class="app-dialog__title"></h2>
+      <p id="appDialogMessage" class="app-dialog__message"></p>
+      <div id="appDialogActions" class="app-dialog__actions"></div>
+    </div>
+  </div>
+
   <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
   <script>
@@ -8263,9 +8431,13 @@
         period.classList.toggle('hidden', !isChecked);
         if (wrapper) wrapper.classList.toggle('hidden', !isChecked);
       }
+      if (typeof window.updateLeaveApplyValidation === 'function') {
+        window.updateLeaveApplyValidation();
+      }
     }
   </script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" integrity="sha256-yVBhl8r4CaB1tt7h2g02+xnacVj/6KiOewyWxdhiPJk=" crossorigin="anonymous"></script>
+  <script src="vendor/cropperjs/cropper.min.js"></script>
   <script src="index.js"></script>
   
 <iframe

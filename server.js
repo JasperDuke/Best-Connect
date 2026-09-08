@@ -1887,7 +1887,30 @@ const PROFILE_EDITABLE_KEYWORDS = {
   emergency: ['emergency', 'kin', 'guardian']
 };
 
-const PROFILE_EXCLUDED_KEYS = new Set(['id', '_id', 'leaveBalances']);
+const PROFILE_EXCLUDED_KEYS = new Set(['id', '_id', 'leaveBalances', 'companyUnitId', 'profileImage']);
+
+const PROFILE_IMAGE_MAX_LENGTH = 7_200_000;
+const PROFILE_IMAGE_MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
+const PROFILE_SUPPRESSED_NORMALIZED_KEYS = new Set([
+  'id',
+  '_id',
+  'leavebalances',
+  'companyunitid',
+  'name',
+  'email',
+  'title',
+  'department',
+  'project',
+  'status',
+  'no',
+  'role',
+  'appraiser',
+  'appariser',
+  'manager',
+  'supervisor',
+  'reporting'
+]);
 
 function normalizeProfileKey(key) {
   return typeof key === 'string' ? key.trim().toLowerCase() : '';
@@ -1924,21 +1947,139 @@ function findValueByKeywords(employee, keywords = []) {
   }, '');
 }
 
+function validateProfileImageDataUrl(value) {
+  if (value === null || value === undefined || value === '') {
+    return { ok: true, value: null };
+  }
+  if (typeof value !== 'string') {
+    return { ok: false, error: 'Profile image must be a base64 data URL string.' };
+  }
+  const trimmed = value.trim();
+  const match = trimmed.match(/^data:image\/(jpeg|jpg|png|webp);base64,([\s\S]+)$/i);
+  if (!match) {
+    return { ok: false, error: 'Profile image must be a JPEG, PNG, or WebP data URL.' };
+  }
+  const format = match[1].toLowerCase() === 'jpg' ? 'jpeg' : match[1].toLowerCase();
+  const normalized = `data:image/${format};base64,${match[2].replace(/\s+/g, '')}`;
+  if (normalized.length > PROFILE_IMAGE_MAX_LENGTH) {
+    return { ok: false, error: 'Profile image is too large after processing. Try cropping a smaller area.' };
+  }
+  return { ok: true, value: normalized };
+}
+
+function findAccountUser(users, sessionUser) {
+  if (!sessionUser) return null;
+  const list = Array.isArray(users) ? users : [];
+  return list.find(user =>
+    user && (user.id == sessionUser.id || user.employeeId == sessionUser.employeeId)
+  ) || null;
+}
+
+function resolveProfileImage(employee, userRecord) {
+  return employee?.profileImage || userRecord?.profileImage || null;
+}
+
+function applyProfileImage(employee, userRecord, value) {
+  if (value) {
+    if (employee) employee.profileImage = value;
+    if (userRecord) userRecord.profileImage = value;
+    return;
+  }
+  if (employee) delete employee.profileImage;
+  if (userRecord) delete userRecord.profileImage;
+}
+
+function resolveSessionEmployee(sessionUser, employees = [], users = []) {
+  if (!sessionUser) {
+    return { employee: null, userRecord: null };
+  }
+  const userRecord = findAccountUser(users, sessionUser);
+  const employeeId = sessionUser.employeeId ?? userRecord?.employeeId ?? null;
+  if (employeeId !== null && employeeId !== undefined && employeeId !== '') {
+    const employee = employees.find(emp => emp && emp.id == employeeId);
+    if (employee) {
+      return { employee, userRecord };
+    }
+  }
+  const email = sessionUser.email || userRecord?.email;
+  if (email) {
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const employee = employees.find(emp => {
+      const empEmail = getEmpEmail(emp);
+      return empEmail && String(empEmail).trim().toLowerCase() === normalizedEmail;
+    });
+    if (employee) {
+      return { employee, userRecord };
+    }
+  }
+  return { employee: null, userRecord };
+}
+
+async function persistProfileImage(employee, userRecord, profileImage) {
+  applyProfileImage(employee, userRecord, profileImage);
+  const database = getDatabase();
+  const writes = [];
+  if (employee?.id != null) {
+    writes.push(
+      database.collection('employees').updateOne(
+        { id: employee.id },
+        profileImage ? { $set: { profileImage } } : { $unset: { profileImage: '' } }
+      )
+    );
+  }
+  if (userRecord?.id != null) {
+    writes.push(
+      database.collection('users').updateOne(
+        { id: userRecord.id },
+        profileImage ? { $set: { profileImage } } : { $unset: { profileImage: '' } }
+      )
+    );
+  }
+  if (writes.length) {
+    await Promise.all(writes);
+  }
+}
+
+function buildMyPerformanceSummary(employeeId, reviews = []) {
+  if (!employeeId) return null;
+  const records = Array.isArray(reviews) ? reviews : [];
+  const review = records
+    .filter(entry => String(entry.employeeId) === String(employeeId))
+    .sort((a, b) => Number(b.cycleYear || 0) - Number(a.cycleYear || 0))[0];
+  if (!review) return null;
+  const yearEnd = review.yearEnd && typeof review.yearEnd === 'object' ? review.yearEnd : {};
+  return {
+    cycleYear: review.cycleYear || new Date().getFullYear(),
+    selfReview: yearEnd.selfReview || '',
+    managerReview: yearEnd.managerReview || '',
+    ranking: PERFORMANCE_RANKING_LABELS[yearEnd.rankingCategory] || null,
+    overallScore: yearEnd.overallScore ?? null,
+    updatedAt: review.updatedAt || null
+  };
+}
+
 function buildEmployeeProfile(employee, options = {}) {
+  const settings = options.settings && typeof options.settings === 'object' ? options.settings : {};
   const sectionMap = new Map(
     PROFILE_SECTIONS.map(section => [section.id, { id: section.id, title: section.title, editable: section.editable, fields: [] }])
   );
+  const seenFieldKeys = new Set();
 
   Object.entries(employee || {}).forEach(([key, value]) => {
     if (PROFILE_EXCLUDED_KEYS.has(key)) return;
     const normalizedKey = normalizeProfileKey(key);
+    if (PROFILE_SUPPRESSED_NORMALIZED_KEYS.has(normalizedKey)) return;
+    if (seenFieldKeys.has(normalizedKey)) return;
+    seenFieldKeys.add(normalizedKey);
     const sectionDef = PROFILE_SECTIONS.find(section =>
       section.keywords.some(keyword => normalizedKey.includes(keyword))
     ) || PROFILE_SECTIONS[0];
     const section = sectionMap.get(sectionDef.id);
     if (!section) return;
     const editableKeywords = PROFILE_EDITABLE_KEYWORDS[sectionDef.id] || [];
-    const editable = sectionDef.editable && editableKeywords.some(keyword => normalizedKey.includes(keyword));
+    const editable = !options.readOnly
+      && sectionDef.editable
+      && editableKeywords.some(keyword => normalizedKey.includes(keyword));
     const fieldValue = value === null || typeof value === 'undefined' ? '' : value;
     const inputType = determineProfileInputType(normalizedKey);
     section.fields.push({
@@ -1974,6 +2115,7 @@ function buildEmployeeProfile(employee, options = {}) {
     })(),
     summary: {
       title: findValueByKeywords(employee, ['title', 'position']),
+      company: resolveCompanyUnitName(employee?.companyUnitId, settings),
       department: findValueByKeywords(employee, ['department', 'project']),
       manager: findValueByKeywords(employee, ['appraiser', 'manager', 'supervisor', 'reporting']),
       status:
@@ -2585,8 +2727,94 @@ const DEFAULT_POST_LOGIN_AUTH =
 const DEFAULT_ORGANIZATION_PORTAL_NAME = 'HR Connect';
 const DEFAULT_ORGANIZATION_LOGO_URL = 'logo.png';
 
+const DEFAULT_COMPANY_UNITS = [
+  { id: 'brillar', name: 'Brillar' },
+  { id: 'atenxion', name: 'Atenxion' }
+];
+
+function slugifyCompanyUnitId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'company';
+}
+
+function getCompanyUnitsFromSettings(settings = {}) {
+  const stored = settings?.companyUnits;
+  if (!Array.isArray(stored) || !stored.length) {
+    return DEFAULT_COMPANY_UNITS.map(unit => ({ ...unit }));
+  }
+  return stored
+    .filter(unit => unit && typeof unit.name === 'string' && unit.name.trim())
+    .map(unit => ({
+      id: typeof unit.id === 'string' && unit.id.trim()
+        ? unit.id.trim()
+        : slugifyCompanyUnitId(unit.name),
+      name: unit.name.trim()
+    }));
+}
+
+function resolveCompanyUnitName(companyUnitId, settings = {}) {
+  if (!companyUnitId) return '';
+  const units = getCompanyUnitsFromSettings(settings);
+  const match = units.find(unit => unit.id === companyUnitId);
+  return match ? match.name : '';
+}
+
+function normalizeCompanyUnitsPayload(units) {
+  if (!Array.isArray(units)) return null;
+  const normalized = [];
+  const seen = new Set();
+  units.forEach(unit => {
+    const name = typeof unit?.name === 'string' ? unit.name.trim() : '';
+    if (!name) return;
+    const id = typeof unit?.id === 'string' && unit.id.trim()
+      ? unit.id.trim()
+      : slugifyCompanyUnitId(name);
+    if (seen.has(id)) return;
+    seen.add(id);
+    normalized.push({ id, name });
+  });
+  return normalized;
+}
+
 function genToken() {
   return Math.random().toString(36).slice(2) + Date.now();
+}
+
+const SESSION_SECRET =
+  process.env.SESSION_SECRET || process.env.JWT_SECRET || 'brillar-hr-session';
+
+function createSessionToken(userId) {
+  const id = String(userId);
+  const nonce = crypto.randomBytes(8).toString('hex');
+  const payload = `${id}.${nonce}`;
+  const signature = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(payload)
+    .digest('hex');
+  const token = `${payload}.${signature}`;
+  SESSION_TOKENS[token] = userId;
+  return token;
+}
+
+function extractUserIdFromSessionToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  if (SESSION_TOKENS[token]) {
+    return SESSION_TOKENS[token];
+  }
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [userId, nonce, signature] = parts;
+  const payload = `${userId}.${nonce}`;
+  const expected = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(payload)
+    .digest('hex');
+  if (signature !== expected) return null;
+  SESSION_TOKENS[token] = userId;
+  return userId;
 }
 
 const CANDIDATE_STATUSES = [
@@ -3033,12 +3261,12 @@ function resolveToken(req) {
 }
 
 async function resolveUserFromSession(token) {
-  if (!token || !SESSION_TOKENS[token]) {
+  const userId = extractUserIdFromSessionToken(token);
+  if (!userId) {
     return null;
   }
-  const userId = SESSION_TOKENS[token];
   await db.read();
-  let user = db.data.users?.find(u => u.id === userId);
+  let user = db.data.users?.find(u => u.id == userId);
   if (!user && userId === 'admin') {
     user = { id: 'admin', email: ADMIN_EMAIL, role: 'superadmin', employeeId: null };
   }
@@ -3095,6 +3323,13 @@ async function authRequired(req, res, next) {
     }
     req.user = user;
     return next();
+  }
+
+  if (token) {
+    if (req.cookies?.[SESSION_COOKIE_NAME]) {
+      clearSessionCookie(res);
+    }
+    return res.status(401).json({ error: 'Session expired. Please sign in again.' });
   }
 
   if (req.cookies?.[SESSION_COOKIE_NAME]) {
@@ -3212,8 +3447,7 @@ init().then(async () => {
       } else {
         return res.status(401).send('User not found');
       }
-      const token = genToken();
-      SESSION_TOKENS[token] = userObj.id;
+      const token = createSessionToken(userObj.id);
       setSessionCookie(res, token);
       const redirect = `/?token=${token}&user=${encodeURIComponent(JSON.stringify(userObj))}`;
       res.redirect(redirect);
@@ -3473,8 +3707,7 @@ init().then(async () => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = genToken();
-    SESSION_TOKENS[token] = userObj.id;
+    const token = createSessionToken(userObj.id);
     setSessionCookie(res, token);
     res.json({ token, user: userObj });
   });
@@ -3534,9 +3767,6 @@ init().then(async () => {
 
   // ========== MY PROFILE ==========
   app.get('/api/my-profile', authRequired, async (req, res) => {
-    if (!req.user.employeeId) {
-      return res.status(404).json({ error: 'Employee profile not linked to this account.' });
-    }
     await db.read();
     db.data.employees = Array.isArray(db.data.employees)
       ? db.data.employees
@@ -3544,10 +3774,16 @@ init().then(async () => {
     db.data.salaries = Array.isArray(db.data.salaries)
       ? db.data.salaries
       : [];
-    const employee = db.data.employees.find(emp => emp.id == req.user.employeeId);
+    db.data.users = Array.isArray(db.data.users) ? db.data.users : [];
+    const { employee, userRecord } = resolveSessionEmployee(
+      req.user,
+      db.data.employees,
+      db.data.users
+    );
     if (!employee) {
       return res.status(404).json({ error: 'Employee profile not found.' });
     }
+    const reviews = Array.isArray(db.data.performanceReviews) ? db.data.performanceReviews : [];
     const { formatted } = await getComputedLeaveBalances(employee, { dateNow: new Date() });
     const employeeId = normalizeEmployeeId(employee.id);
     const payrollMonth = currentPayrollMonth();
@@ -3590,11 +3826,41 @@ init().then(async () => {
       : null;
 
     res.json(
-      Object.assign(buildEmployeeProfile(employee, { leaveBalances: formatted }), {
+      Object.assign(buildEmployeeProfile(employee, { leaveBalances: formatted, settings: db.data.settings, readOnly: true }), {
         salary,
-        payroll
+        payroll,
+        profileImage: resolveProfileImage(employee, userRecord),
+        performanceReview: buildMyPerformanceSummary(employee.id, reviews)
       })
     );
+  });
+
+  app.put('/api/my-profile/picture', authRequired, async (req, res) => {
+    try {
+      await db.read();
+      db.data.employees = Array.isArray(db.data.employees) ? db.data.employees : [];
+      db.data.users = Array.isArray(db.data.users) ? db.data.users : [];
+      const { employee, userRecord } = resolveSessionEmployee(
+        req.user,
+        db.data.employees,
+        db.data.users
+      );
+      if (!employee) {
+        return res.status(404).json({ error: 'Employee profile not found.' });
+      }
+
+      const payload = req.body && typeof req.body === 'object' ? req.body : {};
+      const validation = validateProfileImageDataUrl(payload.profileImage);
+      if (!validation.ok) {
+        return res.status(400).json({ error: validation.error });
+      }
+
+      await persistProfileImage(employee, userRecord, validation.value);
+      res.json({ profileImage: resolveProfileImage(employee, userRecord) });
+    } catch (err) {
+      console.error('Failed to save profile image', err);
+      res.status(500).json({ error: 'Unable to save profile photo. Please try again.' });
+    }
   });
 
   app.put('/api/my-profile', authRequired, async (req, res) => {
@@ -3615,52 +3881,25 @@ init().then(async () => {
       ? payload.updates
       : payload;
 
-    const profileView = buildEmployeeProfile(employee);
-    const editableKeys = new Set();
-    profileView.sections.forEach(section => {
-      section.fields.forEach(field => {
-        if (field.editable) editableKeys.add(field.key);
+    if (updates && Object.keys(updates).length > 0) {
+      return res.status(400).json({
+        error: 'Profile details are read-only. Update your photo or password from personalization instead.'
       });
-    });
-
-    let applied = 0;
-    let changed = false;
-    Object.entries(updates || {}).forEach(([key, value]) => {
-      if (!editableKeys.has(key)) return;
-      applied += 1;
-      const normalizedValue = value === null || typeof value === 'undefined'
-        ? ''
-        : typeof value === 'string'
-          ? value.trim()
-          : String(value);
-      const currentValue = employee[key];
-      const normalizedCurrent = currentValue === null || typeof currentValue === 'undefined'
-        ? ''
-        : typeof currentValue === 'string'
-          ? currentValue
-          : String(currentValue);
-      if (normalizedCurrent !== normalizedValue) {
-        employee[key] = normalizedValue;
-        changed = true;
-      }
-    });
-
-    if (changed) {
-      await db.write();
     }
 
     const { formatted } = await getComputedLeaveBalances(employee, { dateNow: new Date() });
-    const response = buildEmployeeProfile(employee, { leaveBalances: formatted });
-    if (applied === 0) {
-      response.message = 'No editable fields were updated.';
-      response.messageType = 'info';
-    } else if (!changed) {
-      response.message = 'No changes detected.';
-      response.messageType = 'info';
-    } else {
-      response.message = 'Profile updated successfully.';
-      response.messageType = 'success';
-    }
+    db.data.users = Array.isArray(db.data.users) ? db.data.users : [];
+    const userRecord = findAccountUser(db.data.users, req.user);
+    const reviews = Array.isArray(db.data.performanceReviews) ? db.data.performanceReviews : [];
+    const response = buildEmployeeProfile(employee, {
+      leaveBalances: formatted,
+      settings: db.data.settings,
+      readOnly: true
+    });
+    response.profileImage = resolveProfileImage(employee, userRecord);
+    response.performanceReview = buildMyPerformanceSummary(employee.id, reviews);
+    response.message = 'Profile details are read-only.';
+    response.messageType = 'info';
     res.json(response);
   });
 
@@ -5652,6 +5891,83 @@ init().then(async () => {
     }
   });
 
+  // ---- COMPANY UNITS (Brillar / Atenxion, etc.) ----
+  app.get('/settings/company-units', authRequired, managerOnly, async (_req, res) => {
+    try {
+      await db.read();
+      const settings = db.data.settings && typeof db.data.settings === 'object' ? db.data.settings : {};
+      const units = getCompanyUnitsFromSettings(settings);
+      const employees = Array.isArray(db.data.employees) ? db.data.employees : [];
+      const assignments = employees.map(emp => ({
+        employeeId: emp.id,
+        name: emp.name || '',
+        email: getEmpEmail(emp) || '',
+        companyUnitId: emp.companyUnitId || '',
+        companyUnitName: resolveCompanyUnitName(emp.companyUnitId, settings)
+      }));
+      res.json({ units, assignments });
+    } catch (err) {
+      console.error('Failed to load company units', err);
+      res.status(500).json({ error: 'Unable to load company units.' });
+    }
+  });
+
+  app.put('/settings/company-units', authRequired, managerOnly, async (req, res) => {
+    try {
+      const units = normalizeCompanyUnitsPayload(req.body?.units);
+      if (!units || !units.length) {
+        return res.status(400).json({ error: 'Add at least one company.' });
+      }
+
+      await db.read();
+      db.data.settings = db.data.settings && typeof db.data.settings === 'object' ? db.data.settings : {};
+      db.data.settings.companyUnits = units;
+
+      const validIds = new Set(units.map(unit => unit.id));
+      (db.data.employees || []).forEach(emp => {
+        if (emp.companyUnitId && !validIds.has(emp.companyUnitId)) {
+          emp.companyUnitId = '';
+        }
+      });
+
+      await db.write();
+      res.json({ units });
+    } catch (err) {
+      console.error('Failed to save company units', err);
+      res.status(500).json({ error: 'Unable to save company units.' });
+    }
+  });
+
+  app.put('/settings/company-units/assignments', authRequired, managerOnly, async (req, res) => {
+    try {
+      const assignments = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
+      if (!assignments.length) {
+        return res.status(400).json({ error: 'No assignments provided.' });
+      }
+
+      await db.read();
+      const settings = db.data.settings && typeof db.data.settings === 'object' ? db.data.settings : {};
+      const validIds = new Set(getCompanyUnitsFromSettings(settings).map(unit => unit.id));
+      let updated = 0;
+
+      assignments.forEach(entry => {
+        const employeeId = entry?.employeeId;
+        const companyUnitId = typeof entry?.companyUnitId === 'string' ? entry.companyUnitId.trim() : '';
+        const emp = (db.data.employees || []).find(item => item.id == employeeId);
+        if (!emp) return;
+        if (companyUnitId && !validIds.has(companyUnitId)) return;
+        emp.companyUnitId = companyUnitId;
+        updated += 1;
+      });
+
+      await db.write();
+      res.json({ updated });
+    } catch (err) {
+      console.error('Failed to save company unit assignments', err);
+      res.status(500).json({ error: 'Unable to save company assignments.' });
+    }
+  });
+
   // ---- CAREER PAGE BUILDER SETTINGS ----
   app.get('/public/settings/career-page', async (_req, res) => {
     try {
@@ -6866,12 +7182,20 @@ init().then(async () => {
     res.status(result.status).json(result.application);
   });
 
-  app.get('/api/me', authRequired, (req, res) => {
+  app.get('/api/me', authRequired, async (req, res) => {
+    await db.read();
+    db.data.users = Array.isArray(db.data.users) ? db.data.users : [];
+    db.data.employees = Array.isArray(db.data.employees) ? db.data.employees : [];
+    const userRecord = findAccountUser(db.data.users, req.user);
+    const employee = req.user?.employeeId
+      ? db.data.employees.find(emp => emp.id == req.user.employeeId)
+      : null;
     res.json({
       userId: req.user.id,
       employeeId: req.user.employeeId ?? null,
       email: req.user.email || null,
-      role: req.user.role
+      role: req.user.role,
+      profileImage: resolveProfileImage(employee, userRecord)
     });
   });
 

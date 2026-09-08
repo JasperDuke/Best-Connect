@@ -12,8 +12,13 @@ const employeeGridState = {
   page: 1,
   pageSize: 8,
   statusFilter: 'all',
-  internFilter: 'all'
+  internFilter: 'all',
+  companyFilter: 'all'
 };
+let companyUnits = [];
+let companyAssignments = [];
+let companyAssignmentSearchTerm = '';
+let portalCompanyFilter = 'all';
 let companyHolidays = [];
 let holidaysLoaded = false;
 let holidaysLoading = null;
@@ -458,10 +463,110 @@ function updateBalanceWarning(balanceMap = {}) {
   const warningText = warningEl.querySelector('p');
   if (warningText) {
     const readableTypes = negativeTypes.map(capitalize).join(', ');
-    warningText.textContent = `Negative balance for ${readableTypes}. Applications are allowed up to the configured negative limit: Annual -2, Casual -1, Medical -2.`;
+    warningText.textContent = `Negative balance for ${readableTypes}. New requests are blocked once a type reaches its limit (Annual -2, Casual -1, Medical -2 days).`;
   }
   warningEl.classList.remove('hidden');
 }
+
+function validateLeaveBalanceClient(balance, leaveType, requestedDays) {
+  const days = Number.isFinite(requestedDays) ? requestedDays : 0;
+  const numericBalance = Number(balance) || 0;
+  const projected = roundToOneDecimal(numericBalance - days);
+  const negativeLimit = LEAVE_NEGATIVE_LIMITS[leaveType] || 0;
+  if (projected < -negativeLimit) {
+    const limitText = negativeLimit > 0
+      ? ` You can only go ${negativeLimit} day${negativeLimit === 1 ? '' : 's'} below zero for ${capitalize(leaveType)} leave.`
+      : '';
+    return `Insufficient ${capitalize(leaveType)} balance. Current: ${roundToOneDecimal(numericBalance)} days; requested: ${days} day${days === 1 ? '' : 's'}.${limitText}`;
+  }
+  return null;
+}
+
+function getLeaveApplyFormValues() {
+  const empId = document.getElementById('employeeSelect')?.value || '';
+  const type = document.getElementById('type')?.value || '';
+  const from = document.getElementById('from')?.value || '';
+  const to = document.getElementById('to')?.value || '';
+  const halfDay = Boolean(document.getElementById('halfDay')?.checked);
+  const halfDayPeriod = halfDay ? document.getElementById('halfDayPeriod')?.value || null : null;
+  return { empId, type, from, to, halfDay, halfDayPeriod };
+}
+
+function updateLeaveApplyValidation() {
+  const errorEl = document.getElementById('leaveApplyError');
+  const applyBtn = document.getElementById('leaveApplyBtn') || document.querySelector('#applyForm button[type="submit"]');
+  const { empId, type, from, to, halfDay } = getLeaveApplyFormValues();
+  const typeSelect = document.getElementById('type');
+  const hasEnabledType = typeSelect && Array.from(typeSelect.options).some(opt => opt.value && !opt.disabled);
+
+  let error = '';
+  let canSubmit = Boolean(empId && type && from && to && hasEnabledType);
+
+  if (!empId) {
+    canSubmit = false;
+  } else if (!hasEnabledType) {
+    canSubmit = false;
+    error = 'All leave types are at or beyond their negative limit. You cannot apply until balances recover.';
+  } else if (!type) {
+    canSubmit = false;
+  } else if (from && to) {
+    const fromDate = new Date(from);
+    const toDate = new Date(to);
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+      error = 'Enter valid from and to dates.';
+      canSubmit = false;
+    } else if (toDate < fromDate) {
+      error = 'End date cannot be before the start date.';
+      canSubmit = false;
+    } else {
+      const days = calculateLeaveDays(from, to, halfDay);
+      if (days <= 0) {
+        error = 'Selected dates do not include any working days.';
+        canSubmit = false;
+      } else {
+        const balance = currentLeaveBalances[type] ?? 0;
+        const limit = LEAVE_NEGATIVE_LIMITS[type] || 0;
+        if (balance <= -limit) {
+          error = `${capitalize(type)} leave is blocked because the balance (${roundToOneDecimal(balance)} days) is at or beyond the -${limit} day limit.`;
+          canSubmit = false;
+        } else {
+          const validationError = validateLeaveBalanceClient(balance, type, days);
+          if (validationError) {
+            error = validationError;
+            canSubmit = false;
+          }
+        }
+      }
+    }
+  }
+
+  if (errorEl) {
+    if (error) {
+      errorEl.textContent = error;
+      errorEl.classList.remove('hidden');
+    } else {
+      errorEl.textContent = '';
+      errorEl.classList.add('hidden');
+    }
+  }
+
+  if (applyBtn) {
+    applyBtn.disabled = !canSubmit;
+    if (!empId) {
+      applyBtn.title = 'Select an employee to apply for leave.';
+    } else if (!hasEnabledType) {
+      applyBtn.title = 'Applications are disabled because all leave types reached their negative limits.';
+    } else if (error) {
+      applyBtn.title = error;
+    } else if (!from || !to) {
+      applyBtn.title = 'Select leave dates to continue.';
+    } else {
+      applyBtn.title = '';
+    }
+  }
+}
+
+window.updateLeaveApplyValidation = updateLeaveApplyValidation;
 
 function populateLeaveTypeOptions(selectEl, balanceMap = {}) {
   if (!selectEl) return { hasEnabled: false };
@@ -1087,13 +1192,11 @@ document.addEventListener('DOMContentLoaded', () => {
   if (!localStorage.getItem('brillar_token')) {
     document.getElementById('loginPage').classList.remove('hidden');
     document.getElementById('logoutBtn').classList.add('hidden');
-    document.getElementById('changePassBtn').classList.add('hidden');
     document.getElementById('mainApp').classList.add('hidden');
     updateChatWidgetUser(null);
   } else {
     document.getElementById('loginPage').classList.add('hidden');
     document.getElementById('logoutBtn').classList.remove('hidden');
-    document.getElementById('changePassBtn').classList.remove('hidden');
     document.getElementById('mainApp').classList.remove('hidden');
     try {
       currentUser = JSON.parse(localStorage.getItem('brillar_user'));
@@ -1127,7 +1230,6 @@ document.getElementById('loginForm').onsubmit = async function(ev) {
     loadPostLoginSettings({ force: true, silent: true });
     document.getElementById('loginPage').classList.add('hidden');
     document.getElementById('logoutBtn').classList.remove('hidden');
-    document.getElementById('changePassBtn').classList.remove('hidden');
     document.getElementById('mainApp').classList.remove('hidden');
     toggleTabsByRole();
     init();
@@ -1149,7 +1251,6 @@ function logout() {
   localStorage.removeItem('brillar_user');
   document.getElementById('loginPage').classList.remove('hidden');
   document.getElementById('logoutBtn').classList.add('hidden');
-  document.getElementById('changePassBtn').classList.add('hidden');
   document.getElementById('mainApp').classList.add('hidden');
   document.getElementById('tabProfile').classList.add('hidden');
   document.getElementById('tabManage').classList.add('hidden');
@@ -1180,6 +1281,20 @@ function apiFetch(path, options = {}) {
   options.headers = options.headers || {};
   if (token) options.headers['Authorization'] = 'Bearer ' + token;
   return fetch(API + path, options);
+}
+
+async function apiJSON(path, options = {}) {
+  const { method = 'GET', body, headers = {} } = options;
+  const res = await apiFetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: body !== undefined ? JSON.stringify(body) : undefined
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Request failed (${res.status})`);
+  }
+  return data;
 }
 
 const toastContainer = document.getElementById('toastContainer');
@@ -1215,6 +1330,7 @@ const learningAdminTabPanels = {
 const settingsSubtabButtons = document.querySelectorAll('[data-settings-tab]');
 const settingsSubtabPanels = {
   organization: document.querySelector('[data-settings-tab-panel="organization"]'),
+  companyUnits: document.querySelector('[data-settings-tab-panel="companyUnits"]'),
   holidays: document.querySelector('[data-settings-tab-panel="holidays"]'),
   leaveCycle: document.querySelector('[data-settings-tab-panel="leaveCycle"]'),
   resetLeave: document.querySelector('[data-settings-tab-panel="resetLeave"]'),
@@ -1294,6 +1410,147 @@ function showToast(message, type = 'info') {
     clearTimeout(timeoutId);
     removeToast();
   });
+}
+
+let appDialogResolver = null;
+
+function closeAppDialog(result = false) {
+  const dialog = document.getElementById('appDialog');
+  if (!dialog) return;
+  dialog.classList.add('hidden');
+  dialog.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('app-dialog-open');
+  const resolver = appDialogResolver;
+  appDialogResolver = null;
+  if (resolver) resolver(result);
+}
+
+function openAppDialog({
+  title,
+  message,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  variant = 'default',
+  showCancel = true,
+  icon = 'info'
+}) {
+  const dialog = document.getElementById('appDialog');
+  const titleEl = document.getElementById('appDialogTitle');
+  const messageEl = document.getElementById('appDialogMessage');
+  const iconEl = document.getElementById('appDialogIcon');
+  const actionsEl = document.getElementById('appDialogActions');
+  if (!dialog || !titleEl || !messageEl || !iconEl || !actionsEl) {
+    return Promise.resolve(window.confirm(message || title));
+  }
+
+  titleEl.textContent = title || '';
+  messageEl.textContent = message || '';
+  iconEl.innerHTML = `<span class="material-symbols-rounded">${escapeHtml(icon)}</span>`;
+  iconEl.className = `app-dialog__icon app-dialog__icon--${variant}`;
+
+  actionsEl.innerHTML = '';
+  if (showCancel) {
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'md-button md-button--text app-dialog__btn-cancel';
+    cancelBtn.textContent = cancelLabel;
+    cancelBtn.addEventListener('click', () => closeAppDialog(false));
+    actionsEl.appendChild(cancelBtn);
+  }
+
+  const confirmBtn = document.createElement('button');
+  confirmBtn.type = 'button';
+  confirmBtn.className = variant === 'danger'
+    ? 'md-button md-button--danger app-dialog__btn-confirm'
+    : 'md-button md-button--filled app-dialog__btn-confirm';
+  confirmBtn.textContent = confirmLabel;
+  confirmBtn.addEventListener('click', () => closeAppDialog(true));
+  actionsEl.appendChild(confirmBtn);
+
+  dialog.classList.remove('hidden');
+  dialog.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('app-dialog-open');
+  confirmBtn.focus();
+
+  return new Promise(resolve => {
+    appDialogResolver = resolve;
+  });
+}
+
+function showConfirmDialog(options) {
+  return openAppDialog({ ...options, showCancel: true });
+}
+
+function showAlertDialog({ title, message, confirmLabel = 'OK', variant = 'default', icon = 'info' }) {
+  return openAppDialog({
+    title,
+    message,
+    confirmLabel,
+    variant,
+    icon,
+    showCancel: false
+  });
+}
+
+function appConfirm(message, options = {}) {
+  return showConfirmDialog({
+    title: options.title || 'Confirm',
+    message,
+    confirmLabel: options.confirmLabel || 'Confirm',
+    cancelLabel: options.cancelLabel || 'Cancel',
+    variant: options.variant || 'default',
+    icon: options.icon || 'help'
+  });
+}
+
+function initAppDialog() {
+  const dialog = document.getElementById('appDialog');
+  if (!dialog || dialog.dataset.bound === 'true') return;
+  dialog.dataset.bound = 'true';
+
+  dialog.addEventListener('click', event => {
+    if (event.target.closest('[data-app-dialog-dismiss]')) {
+      closeAppDialog(false);
+    }
+  });
+
+  document.addEventListener('keydown', event => {
+    if (dialog.classList.contains('hidden')) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeAppDialog(false);
+    }
+  });
+
+  const reasonModal = document.getElementById('reasonModal');
+  if (reasonModal && !reasonModal.dataset.bound) {
+    reasonModal.dataset.bound = 'true';
+    reasonModal.addEventListener('click', event => {
+      if (event.target.closest('[data-app-dialog-dismiss]')) {
+        closeReasonModal();
+      }
+    });
+    document.addEventListener('keydown', event => {
+      if (reasonModal.classList.contains('hidden')) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeReasonModal();
+      }
+    });
+  }
+}
+
+function formatShortDate(dateStr) {
+  if (!dateStr) return '-';
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatLeavePeriod(from, to) {
+  if (!from && !to) return '-';
+  if (from === to) return formatShortDate(from);
+  return `${formatShortDate(from)} → ${formatShortDate(to)}`;
 }
 
 function setButtonLoading(button, isLoading) {
@@ -2250,6 +2507,7 @@ function toggleTabsByRole() {
 
   updateRoleAssignmentVisibility();
   updateRequestPortalVisibility();
+  syncCompanyFilterControls();
 
   refreshTabGroupVisibility();
 }
@@ -5766,6 +6024,7 @@ function getVisibleSettingsSubtabs() {
 function loadSettingsSubtabData(name) {
   if (!isManagerRole(currentUser)) return;
   if (name === 'organization') loadOrganizationSettings();
+  if (name === 'companyUnits') loadCompanyUnitsSettings();
   if (name === 'holidays') loadHolidays();
   if (name === 'leaveCycle') loadLeaveCycleSettings();
   if (name === 'resetLeave') loadResetLeaveSettings();
@@ -7035,6 +7294,263 @@ function setProfileSummaryField(id, value) {
   } else {
     el.classList.remove('text-muted');
   }
+  if (id === 'profileSummaryCompany') {
+    el.classList.toggle('profile-overview-cell__value--pill', text === '-');
+  }
+}
+
+function renderProfileStatusBadge(status) {
+  const badge = document.getElementById('profileStatusBadge');
+  if (!badge) return;
+  const raw = status && String(status).trim() ? String(status).trim() : 'active';
+  const label = raw.charAt(0).toUpperCase() + raw.slice(1);
+  const inactive = ['inactive', 'terminated', 'disabled', 'deactivated'].includes(raw.toLowerCase());
+  badge.classList.toggle('profile-status-badge--inactive', inactive);
+  badge.innerHTML = `<span class="material-symbols-rounded">person</span>${label}`;
+}
+
+function renderProfileAvatar(profileImage, name) {
+  const avatar = document.getElementById('profileAvatar');
+  const img = document.getElementById('profileAvatarImage');
+  const icon = avatar?.querySelector('.profile-avatar__icon');
+  const removeBtn = document.getElementById('profileRemovePhotoBtn');
+  if (!avatar || !img) return;
+  const hasImage = typeof profileImage === 'string' && profileImage.startsWith('data:image');
+  if (hasImage) {
+    img.src = profileImage;
+    img.alt = name ? `${name} profile photo` : 'Profile photo';
+    img.classList.remove('hidden');
+    if (icon) icon.classList.add('hidden');
+    if (removeBtn) removeBtn.classList.remove('hidden');
+  } else {
+    img.removeAttribute('src');
+    img.classList.add('hidden');
+    if (icon) icon.classList.remove('hidden');
+    if (removeBtn) removeBtn.classList.add('hidden');
+  }
+}
+
+function renderProfilePerformanceReview(review) {
+  const container = document.getElementById('profilePerformanceContent');
+  if (!container) return;
+  if (!review) {
+    container.innerHTML = '<p class="text-muted">No performance review has been recorded for you yet.</p>';
+    return;
+  }
+  const cycleYear = review.cycleYear || new Date().getFullYear();
+  const ranking = review.ranking ? escapeHtml(review.ranking) : 'Not ranked yet';
+  const score = review.overallScore != null ? escapeHtml(String(review.overallScore)) : '-';
+  const selfReview = review.selfReview
+    ? escapeHtml(review.selfReview)
+    : '<span class="text-muted">No self review submitted.</span>';
+  const managerReview = review.managerReview
+    ? escapeHtml(review.managerReview)
+    : '<span class="text-muted">No manager comments yet.</span>';
+  container.innerHTML = `
+    <div class="profile-performance__meta">
+      <span class="profile-performance__chip">Cycle ${escapeHtml(String(cycleYear))}</span>
+      <span class="profile-performance__chip">${ranking}</span>
+      <span class="profile-performance__chip">Score: ${score}</span>
+    </div>
+    <div class="profile-performance__block">
+      <h4>Your self review</h4>
+      <p>${selfReview}</p>
+    </div>
+    <div class="profile-performance__block">
+      <h4>Manager comments</h4>
+      <p>${managerReview}</p>
+    </div>
+  `;
+}
+
+const PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+const PROFILE_PHOTO_OUTPUT_SIZE = 400;
+let profileCropper = null;
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Unable to read image.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function destroyProfileCropper() {
+  if (profileCropper) {
+    profileCropper.destroy();
+    profileCropper = null;
+  }
+}
+
+function closeProfileCropModal() {
+  destroyProfileCropper();
+  const modal = document.getElementById('profileCropModal');
+  const img = document.getElementById('profileCropImage');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  if (img) img.removeAttribute('src');
+  document.body.classList.remove('app-dialog-open');
+}
+
+function openProfileCropModal(file) {
+  if (typeof window.Cropper !== 'function') {
+    return Promise.reject(new Error('Image cropper failed to load. Please refresh the page.'));
+  }
+  return readFileAsDataUrl(file).then(dataUrl => new Promise((resolve, reject) => {
+    const modal = document.getElementById('profileCropModal');
+    const img = document.getElementById('profileCropImage');
+    if (!modal || !img) {
+      reject(new Error('Crop dialog is unavailable.'));
+      return;
+    }
+
+    destroyProfileCropper();
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('app-dialog-open');
+
+    img.onload = () => {
+      try {
+        destroyProfileCropper();
+        profileCropper = new window.Cropper(img, {
+          aspectRatio: 1,
+          viewMode: 1,
+          dragMode: 'move',
+          autoCropArea: 0.9,
+          responsive: true,
+          background: false,
+          guides: true,
+          center: true,
+          highlight: false,
+          cropBoxMovable: true,
+          cropBoxResizable: true,
+          toggleDragModeOnDblclick: false
+        });
+        resolve();
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => reject(new Error('Unable to load image.'));
+    img.src = dataUrl;
+  }));
+}
+
+function getCroppedProfileImageDataUrl() {
+  if (!profileCropper) {
+    throw new Error('Cropper is not ready.');
+  }
+  const canvas = profileCropper.getCroppedCanvas({
+    width: PROFILE_PHOTO_OUTPUT_SIZE,
+    height: PROFILE_PHOTO_OUTPUT_SIZE,
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: 'high'
+  });
+  if (!canvas) {
+    throw new Error('Unable to crop image.');
+  }
+  return canvas.toDataURL('image/jpeg', 0.9);
+}
+
+function initProfilePhotoCropper() {
+  const modal = document.getElementById('profileCropModal');
+  if (!modal || modal.dataset.bound) return;
+  modal.dataset.bound = 'true';
+
+  document.getElementById('profileCropCancel')?.addEventListener('click', closeProfileCropModal);
+  document.getElementById('profileCropSave')?.addEventListener('click', onProfileCropSave);
+  document.getElementById('profileCropZoomIn')?.addEventListener('click', () => profileCropper?.zoom(0.1));
+  document.getElementById('profileCropZoomOut')?.addEventListener('click', () => profileCropper?.zoom(-0.1));
+  document.getElementById('profileCropReset')?.addEventListener('click', () => profileCropper?.reset());
+
+  modal.querySelectorAll('[data-profile-crop-dismiss]').forEach(el => {
+    el.addEventListener('click', closeProfileCropModal);
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+      closeProfileCropModal();
+    }
+  });
+}
+
+async function onProfileCropSave() {
+  const saveBtn = document.getElementById('profileCropSave');
+  try {
+    if (saveBtn) saveBtn.disabled = true;
+    const dataUrl = getCroppedProfileImageDataUrl();
+    const savedImage = await saveProfileImage(dataUrl);
+    if (profileData) profileData.profileImage = savedImage;
+    if (currentUser) currentUser.profileImage = savedImage;
+    renderProfileAvatar(savedImage, profileData?.name || currentUser?.email);
+    closeProfileCropModal();
+    showToast('Profile photo updated.', 'success');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || 'Unable to update profile photo.', 'error');
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+async function saveProfileImage(profileImage) {
+  const res = await apiFetch('/api/my-profile/picture', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profileImage })
+  });
+  let data = {};
+  const contentType = res.headers.get('Content-Type') || '';
+  if (contentType.includes('application/json')) {
+    data = await res.json().catch(() => ({}));
+  }
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error('Your session expired. Please sign out and sign in again, then retry.');
+    }
+    if (res.status === 404) {
+      throw new Error(data.error || 'Profile account not found. Try signing in again.');
+    }
+    throw new Error(data.error || `Unable to update profile photo (${res.status}).`);
+  }
+  return data.profileImage || null;
+}
+
+async function onProfilePhotoSelected(event) {
+  const input = event.target;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    showToast('Please choose a JPEG, PNG, or WebP image.', 'error');
+    return;
+  }
+  if (file.size > PROFILE_PHOTO_MAX_BYTES) {
+    showToast('Image must be 5 MB or smaller.', 'error');
+    return;
+  }
+  try {
+    await openProfileCropModal(file);
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || 'Unable to open image.', 'error');
+  }
+}
+
+async function onProfilePhotoRemove() {
+  try {
+    await saveProfileImage(null);
+    if (profileData) profileData.profileImage = null;
+    if (currentUser) currentUser.profileImage = null;
+    renderProfileAvatar(null, profileData?.name || currentUser?.email);
+    showToast('Profile photo removed.', 'success');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || 'Unable to remove profile photo.', 'error');
+  }
 }
 
 function renderProfileSection(section) {
@@ -7218,15 +7734,25 @@ function renderMyProfile() {
     availableLeaveBalances = null,
     sections = [],
     message = '',
-    messageType = 'success'
+    messageType = 'success',
+    profileImage = null,
+    performanceReview = null
   } = profileData;
 
-  setProfileSummaryField('profileSummaryName', name);
+  const heroName = document.getElementById('profileHeroName');
+  const heroTitle = document.getElementById('profileHeroTitle');
+  if (heroName) heroName.textContent = name || '-';
+  if (heroTitle) heroTitle.textContent = summary.title || '-';
+  renderProfileAvatar(profileImage, name);
+  renderProfilePerformanceReview(performanceReview);
+
   setProfileSummaryField('profileSummaryEmail', email);
   setProfileSummaryField('profileSummaryTitle', summary.title);
+  setProfileSummaryField('profileSummaryCompany', summary.company);
   setProfileSummaryField('profileSummaryDepartment', summary.department);
   setProfileSummaryField('profileSummaryManager', summary.manager);
   setProfileSummaryField('profileSummaryStatus', summary.status);
+  renderProfileStatusBadge(summary.status);
 
   const balancesForDisplay = availableLeaveBalances || leaveBalances;
   const normalizedBalances = normalizeLeaveBalanceMap(balancesForDisplay);
@@ -7235,22 +7761,22 @@ function renderMyProfile() {
   setBalanceValue('profileBalMedical', normalizedBalances.medical);
 
   const container = document.getElementById('profileSections');
+  const detailsWrap = document.getElementById('profileDetailsWrap');
   if (container) {
-    if (!sections.length) {
-      container.innerHTML = `
-        <div class="md-card">
-          <div class="card-title">
-            <span class="material-symbols-rounded">info</span>
-            Profile Details
-          </div>
-          <p class="text-muted" style="font-style: italic;">No profile information recorded yet.</p>
-        </div>
-      `;
+    const readOnlySections = sections
+      .map(section => ({
+        ...section,
+        fields: Array.isArray(section.fields)
+          ? section.fields.map(field => ({ ...field, editable: false }))
+          : []
+      }))
+      .filter(section => section.fields.length > 0);
+    if (!readOnlySections.length) {
+      container.innerHTML = '';
+      if (detailsWrap) detailsWrap.classList.add('hidden');
     } else {
-      container.innerHTML = sections.map(renderProfileSection).join('');
-      container.querySelectorAll('.profile-section-form').forEach(form => {
-        form.addEventListener('submit', onProfileSectionSubmit);
-      });
+      container.innerHTML = readOnlySections.map(renderProfileSection).join('');
+      if (detailsWrap) detailsWrap.classList.remove('hidden');
     }
   }
 
@@ -7287,16 +7813,6 @@ async function loadMyProfile({ force = false } = {}) {
     return profileLoading;
   }
 
-  container.innerHTML = `
-    <div class="md-card">
-      <div class="card-title">
-        <span class="material-symbols-rounded">info</span>
-        Profile Details
-      </div>
-      <p class="text-muted" style="font-style: italic;">Loading profile information...</p>
-    </div>
-  `;
-
   const request = (async () => {
     try {
       const [profileRes, approvedApps] = await Promise.all([
@@ -7317,25 +7833,19 @@ async function loadMyProfile({ force = false } = {}) {
         availableLeaveBalances: available,
         leaveUsage: usage
       };
+      if (currentUser && data.profileImage) {
+        currentUser.profileImage = data.profileImage;
+      }
       renderMyProfile();
       return data;
     } catch (err) {
       console.error('Failed to load profile information', err);
       profileData = null;
-      container.innerHTML = `
-        <div class="md-card">
-          <div class="card-title">
-            <span class="material-symbols-rounded">error</span>
-            Profile Details
-          </div>
-          <p class="text-muted" style="font-style: italic; color:#b3261e;">${escapeHtml(err.message || 'Unable to load profile information.')}</p>
-        </div>
-      `;
       const feedback = document.getElementById('profileGlobalFeedback');
       if (feedback) {
-        feedback.textContent = '';
-        feedback.classList.add('hidden');
-        feedback.classList.remove('error');
+        feedback.textContent = err.message || 'Unable to load profile information.';
+        feedback.classList.remove('hidden');
+        feedback.classList.add('error');
       }
       return null;
     } finally {
@@ -7468,14 +7978,21 @@ function renderHolidayHighlights(options = {}) {
     return parsed >= today;
   });
   const source = upcoming.length ? upcoming : holidays;
-  const limit = 5;
-  const display = source.slice(0, limit);
+  const display = source;
   if (!display.length) {
     container.innerHTML = '<p class="text-muted" style="font-style: italic;">No upcoming holidays recorded.</p>';
+    const subtitle = document.getElementById('holidayHighlightsSubtitle');
+    if (subtitle) subtitle.textContent = 'Plan around days off.';
     return;
   }
-  const remainder = source.length - display.length;
   const needsFallbackNotice = upcoming.length === 0;
+  const subtitle = document.getElementById('holidayHighlightsSubtitle');
+  if (subtitle) {
+    const count = upcoming.length || display.length;
+    subtitle.textContent = upcoming.length
+      ? `${count} upcoming · scroll for more`
+      : 'Showing recent holidays.';
+  }
   const items = display.map(holiday => {
     const nameText = holiday?.name ? String(holiday.name) : 'Holiday';
     const safeName = escapeHtml(nameText);
@@ -7496,20 +8013,17 @@ function renderHolidayHighlights(options = {}) {
       detailParts.push(dateValue);
     }
     const dateMarkup = hasValidDate
-      ? `<div class="holiday-preview-date"><span class="holiday-preview-date__month">${escapeHtml(monthLabel)}</span><span class="holiday-preview-date__day">${escapeHtml(dayLabel)}</span></div>`
-      : `<div class="holiday-preview-date holiday-preview-date--text">${escapeHtml(dateValue || '-')}</div>`;
+      ? `<div class="leave-holiday-item__date"><span class="leave-holiday-item__month">${escapeHtml(monthLabel)}</span><span class="leave-holiday-item__day">${escapeHtml(dayLabel)}</span></div>`
+      : `<div class="leave-holiday-item__date leave-holiday-item__date--text">${escapeHtml(dateValue || '-')}</div>`;
     const metaMarkup = detailParts.length
-      ? `<div class="holiday-preview-meta">${escapeHtml(detailParts.join(' • '))}</div>`
+      ? `<div class="leave-holiday-item__meta">${escapeHtml(detailParts.join(' · '))}</div>`
       : '';
-    return `<div class="holiday-preview-item">${dateMarkup}<div class="holiday-preview-info"><div class="holiday-preview-name">${safeName}</div>${metaMarkup}</div></div>`;
+    return `<div class="leave-holiday-item">${dateMarkup}<div class="leave-holiday-item__info"><div class="leave-holiday-item__name">${safeName}</div>${metaMarkup}</div></div>`;
   }).join('');
   const fallbackNotice = needsFallbackNotice
     ? '<p class="holiday-preview-empty text-muted">No upcoming holidays scheduled. Showing the most recent entries.</p>'
     : '';
-  const moreMarkup = remainder > 0
-    ? `<div class="holiday-preview-more text-quiet">+${remainder} more holiday${remainder === 1 ? '' : 's'} scheduled</div>`
-    : '';
-  container.innerHTML = fallbackNotice + items + moreMarkup;
+  container.innerHTML = fallbackNotice + items;
 }
 
 async function loadHolidays(options = {}) {
@@ -8296,6 +8810,317 @@ function setOrganizationSettingsStatus(message, type = 'info') {
     statusEl.classList.add('settings-status--error');
   } else if (type === 'success') {
     statusEl.classList.add('settings-status--success');
+  }
+}
+
+function getCompanyUnitName(companyUnitId) {
+  if (!companyUnitId) return '';
+  const match = companyUnits.find(unit => unit.id === companyUnitId);
+  return match ? match.name : '';
+}
+
+function employeeMatchesCompanyFilter(employee, filterValue) {
+  if (!filterValue || filterValue === 'all') return true;
+  if (filterValue === 'unassigned') return !employee?.companyUnitId;
+  return employee?.companyUnitId === filterValue;
+}
+
+function populateCompanyFilterSelect(selectEl, selectedValue = 'all') {
+  if (!selectEl) return;
+  const options = [
+    '<option value="all">All departments</option>',
+    '<option value="unassigned">Unassigned</option>',
+    ...companyUnits.map(unit => `<option value="${escapeHtml(unit.id)}">${escapeHtml(unit.name)}</option>`)
+  ];
+  selectEl.innerHTML = options.join('');
+  selectEl.value = selectedValue;
+}
+
+function applicationMatchesDepartmentFilter(app, employees, filterValue) {
+  if (!filterValue || filterValue === 'all') return true;
+  const emp = employees.find(e => e.id == app.employeeId);
+  return employeeMatchesCompanyFilter(emp, filterValue);
+}
+
+function syncCompanyFilterControls() {
+  populateCompanyFilterSelect(document.getElementById('portalCompanyFilter'), portalCompanyFilter);
+  populateCompanyFilterSelect(document.getElementById('managerDepartmentFilter'), portalCompanyFilter);
+  populateCompanyFilterSelect(document.getElementById('employeeCompanyFilter'), employeeGridState.companyFilter);
+
+  const portalWrap = document.getElementById('portalCompanyFilterWrap');
+  const managerWrap = document.getElementById('managerDepartmentFilterWrap');
+  const isManager = isManagerRole(currentUser);
+  if (portalWrap) portalWrap.classList.toggle('hidden', !isManager);
+  if (managerWrap) managerWrap.classList.toggle('hidden', !isManager);
+}
+
+function setCompanyUnitsStatus(message, type = 'info') {
+  const statusEl = document.getElementById('companyUnitsStatus');
+  if (!statusEl) return;
+  statusEl.textContent = message || '';
+  statusEl.classList.remove('settings-status--error', 'settings-status--success');
+  if (!message) {
+    statusEl.classList.add('text-muted');
+    return;
+  }
+  statusEl.classList.remove('text-muted');
+  if (type === 'error') statusEl.classList.add('settings-status--error');
+  if (type === 'success') statusEl.classList.add('settings-status--success');
+}
+
+function setCompanyAssignmentsStatus(message, type = 'info') {
+  const statusEl = document.getElementById('companyAssignmentsStatus');
+  if (!statusEl) return;
+  statusEl.textContent = message || '';
+  statusEl.classList.remove('settings-status--error', 'settings-status--success');
+  if (!message) {
+    statusEl.classList.add('text-muted');
+    return;
+  }
+  statusEl.classList.remove('text-muted');
+  if (type === 'error') statusEl.classList.add('settings-status--error');
+  if (type === 'success') statusEl.classList.add('settings-status--success');
+}
+
+function renderCompanyUnitsEditor() {
+  const listEl = document.getElementById('companyUnitsList');
+  if (!listEl) return;
+  if (!companyUnits.length) {
+    listEl.innerHTML = '<p class="text-muted company-units-empty">No departments yet. Click <strong>Add department</strong> to create Brillar, Atenxion, or others.</p>';
+    return;
+  }
+  listEl.innerHTML = companyUnits.map((unit, index) => `
+    <div class="company-unit-row" data-company-unit-index="${index}">
+      <div class="md-input-wrapper">
+        <span class="material-symbols-rounded">business</span>
+        <input type="text" class="md-input" data-company-unit-name value="${escapeHtml(unit.name)}" placeholder="Department name">
+      </div>
+      <button type="button" class="md-button md-button--text md-button--small" data-remove-company-unit aria-label="Remove department">
+        <span class="material-symbols-rounded">delete</span>
+      </button>
+    </div>
+  `).join('');
+}
+
+function syncCompanyUnitsFromEditor() {
+  const listEl = document.getElementById('companyUnitsList');
+  if (!listEl) return;
+  const inputs = listEl.querySelectorAll('[data-company-unit-name]');
+  if (!inputs.length) return;
+  companyUnits = Array.from(inputs).map((input, index) => ({
+    id: companyUnits[index]?.id || '',
+    name: input.value
+  }));
+}
+
+function addCompanyUnitRow() {
+  syncCompanyUnitsFromEditor();
+  companyUnits.push({ id: '', name: '' });
+  renderCompanyUnitsEditor();
+  const listEl = document.getElementById('companyUnitsList');
+  const inputs = listEl?.querySelectorAll('[data-company-unit-name]');
+  const last = inputs?.[inputs.length - 1];
+  if (last instanceof HTMLElement) last.focus();
+}
+
+function removeCompanyUnitRow(index) {
+  syncCompanyUnitsFromEditor();
+  if (index < 0 || index >= companyUnits.length) return;
+  companyUnits.splice(index, 1);
+  renderCompanyUnitsEditor();
+}
+
+function renderCompanyAssignmentsTable() {
+  const wrap = document.getElementById('companyAssignmentsTableWrap');
+  if (!wrap) return;
+  const search = companyAssignmentSearchTerm.trim().toLowerCase();
+  const rows = (companyAssignments || []).filter(entry => {
+    if (!search) return true;
+    const haystack = `${entry.name || ''} ${entry.email || ''}`.toLowerCase();
+    return haystack.includes(search);
+  });
+  if (!rows.length) {
+    wrap.innerHTML = '<p class="text-muted">No employees match your search.</p>';
+    return;
+  }
+  const options = [
+    '<option value="">Unassigned</option>',
+    ...companyUnits.map(unit => `<option value="${escapeHtml(unit.id)}">${escapeHtml(unit.name)}</option>`)
+  ].join('');
+  wrap.innerHTML = `
+    <table class="company-assignments-table">
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Email</th>
+          <th>Department</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(entry => `
+          <tr>
+            <td>${escapeHtml(entry.name || '-')}</td>
+            <td>${escapeHtml(entry.email || '-')}</td>
+            <td>
+              <select class="md-select" data-company-assignment-id="${escapeHtml(String(entry.employeeId))}">
+                ${options}
+              </select>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  wrap.querySelectorAll('[data-company-assignment-id]').forEach(select => {
+    const employeeId = select.getAttribute('data-company-assignment-id');
+    const entry = companyAssignments.find(item => String(item.employeeId) === String(employeeId));
+    if (entry) select.value = entry.companyUnitId || '';
+  });
+}
+
+async function loadCompanyUnitsSettings({ silent = false } = {}) {
+  if (!isManagerRole(currentUser)) return;
+  try {
+    const res = await apiFetch('/settings/company-units');
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Unable to load departments (${res.status}).`);
+    }
+    const data = await res.json();
+    companyUnits = Array.isArray(data?.units) ? data.units : [];
+    companyAssignments = Array.isArray(data?.assignments) ? data.assignments : [];
+    renderCompanyUnitsEditor();
+    renderCompanyAssignmentsTable();
+    syncCompanyFilterControls();
+    if (!silent) setCompanyUnitsStatus('');
+  } catch (err) {
+    if (!silent) setCompanyUnitsStatus(err.message || 'Unable to load departments.', 'error');
+  }
+}
+
+async function saveCompanyUnits() {
+  const listEl = document.getElementById('companyUnitsList');
+  if (!listEl) return;
+  syncCompanyUnitsFromEditor();
+  const rows = listEl.querySelectorAll('.company-unit-row[data-company-unit-index]');
+  const units = Array.from(rows).map(row => {
+    const index = Number(row.getAttribute('data-company-unit-index'));
+    const name = row.querySelector('[data-company-unit-name]')?.value.trim() || '';
+    const id = companyUnits[index]?.id;
+    return id ? { id, name } : { name };
+  }).filter(unit => unit.name);
+  if (!units.length) {
+    setCompanyUnitsStatus('Add at least one department.', 'error');
+    return;
+  }
+  try {
+    setCompanyUnitsStatus('Saving...');
+    const data = await apiJSON('/settings/company-units', { method: 'PUT', body: { units } });
+    companyUnits = Array.isArray(data?.units) ? data.units : units;
+    renderCompanyUnitsEditor();
+    syncCompanyFilterControls();
+    await loadCompanyUnitsSettings({ silent: true });
+    setCompanyUnitsStatus('Departments saved.', 'success');
+  } catch (err) {
+    setCompanyUnitsStatus(err.message || 'Unable to save departments.', 'error');
+  }
+}
+
+async function saveCompanyAssignments() {
+  const wrap = document.getElementById('companyAssignmentsTableWrap');
+  if (!wrap) return;
+  const assignments = Array.from(wrap.querySelectorAll('[data-company-assignment-id]')).map(select => ({
+    employeeId: select.getAttribute('data-company-assignment-id'),
+    companyUnitId: select.value
+  }));
+  try {
+    setCompanyAssignmentsStatus('Saving...');
+    await apiJSON('/settings/company-units/assignments', { method: 'PUT', body: { assignments } });
+    await loadCompanyUnitsSettings({ silent: true });
+    await loadEmployeesPortal();
+    await loadEmployeesManage();
+    setCompanyAssignmentsStatus('Assignments saved.', 'success');
+  } catch (err) {
+    setCompanyAssignmentsStatus(err.message || 'Unable to save assignments.', 'error');
+  }
+}
+
+function initCompanyUnitsSettings() {
+  const addBtn = document.getElementById('addCompanyUnitBtn');
+  const saveBtn = document.getElementById('saveCompanyUnitsBtn');
+  const saveAssignmentsBtn = document.getElementById('saveCompanyAssignmentsBtn');
+  const searchInput = document.getElementById('companyAssignmentSearch');
+  const listEl = document.getElementById('companyUnitsList');
+
+  if (addBtn && !addBtn.dataset.bound) {
+    addBtn.dataset.bound = 'true';
+    addBtn.addEventListener('click', addCompanyUnitRow);
+  }
+  if (saveBtn && !saveBtn.dataset.bound) {
+    saveBtn.dataset.bound = 'true';
+    saveBtn.addEventListener('click', saveCompanyUnits);
+  }
+  if (saveAssignmentsBtn && !saveAssignmentsBtn.dataset.bound) {
+    saveAssignmentsBtn.dataset.bound = 'true';
+    saveAssignmentsBtn.addEventListener('click', saveCompanyAssignments);
+  }
+  if (searchInput && !searchInput.dataset.bound) {
+    searchInput.dataset.bound = 'true';
+    searchInput.addEventListener('input', () => {
+      companyAssignmentSearchTerm = searchInput.value;
+      renderCompanyAssignmentsTable();
+    });
+  }
+  if (listEl && !listEl.dataset.bound) {
+    listEl.dataset.bound = 'true';
+    listEl.addEventListener('click', event => {
+      const btn = event.target.closest('[data-remove-company-unit]');
+      if (!btn) return;
+      const row = btn.closest('[data-company-unit-index]');
+      const index = Number(row?.getAttribute('data-company-unit-index'));
+      if (!Number.isNaN(index)) removeCompanyUnitRow(index);
+    });
+  }
+
+  const portalFilter = document.getElementById('portalCompanyFilter');
+  if (portalFilter && !portalFilter.dataset.bound) {
+    portalFilter.dataset.bound = 'true';
+    portalFilter.addEventListener('change', async () => {
+      portalCompanyFilter = portalFilter.value;
+      const managerFilter = document.getElementById('managerDepartmentFilter');
+      if (managerFilter) managerFilter.value = portalCompanyFilter;
+      await loadEmployeesPortal();
+      await loadManagerApplications();
+      const empSel = document.getElementById('employeeSelect');
+      if (empSel?.value) empSel.dispatchEvent(new Event('change'));
+    });
+  }
+
+  const managerFilter = document.getElementById('managerDepartmentFilter');
+  if (managerFilter && !managerFilter.dataset.bound) {
+    managerFilter.dataset.bound = 'true';
+    managerFilter.addEventListener('change', async () => {
+      portalCompanyFilter = managerFilter.value;
+      if (portalFilter) portalFilter.value = portalCompanyFilter;
+      await loadEmployeesPortal();
+      await loadManagerApplications();
+    });
+  }
+
+  const empFilter = document.getElementById('employeeCompanyFilter');
+  if (empFilter && !empFilter.dataset.bound) {
+    empFilter.dataset.bound = 'true';
+    empFilter.addEventListener('change', () => {
+      employeeGridState.companyFilter = empFilter.value;
+      employeeGridState.page = 1;
+      loadEmployeesManage();
+    });
+  }
+
+  if (isManagerRole(currentUser)) {
+    loadCompanyUnitsSettings({ silent: true });
+  } else {
+    syncCompanyFilterControls();
   }
 }
 
@@ -11313,6 +12138,14 @@ async function init() {
   document.getElementById('applyForm').addEventListener('submit', onApplySubmit);
   document.getElementById('modalCloseBtn').onclick = closeReasonModal;
   document.getElementById('reasonForm').onsubmit = onReasonSubmit;
+  ['type', 'from', 'to', 'halfDayPeriod'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', updateLeaveApplyValidation);
+  });
+  const fromInput = document.getElementById('from');
+  const toInput = document.getElementById('to');
+  if (fromInput) fromInput.addEventListener('input', updateLeaveApplyValidation);
+  if (toInput) toInput.addEventListener('input', updateLeaveApplyValidation);
 
   const profileTabBtn = document.getElementById('tabProfile');
   if (profileTabBtn) profileTabBtn.onclick = () => showPanel('profile');
@@ -11422,8 +12255,23 @@ async function init() {
   initPrimaryMoreMenu();
   updateRequestPortalSubtab('new');
   ensureRequestTimelineModal();
+  initAppDialog();
+  initCompanyUnitsSettings();
+  initProfilePhotoCropper();
   const payslipBtn = document.getElementById('profilePayslipButton');
   if (payslipBtn) payslipBtn.addEventListener('click', onGeneratePayslipClick);
+  const profileEditPhotoBtn = document.getElementById('profileEditPhotoBtn');
+  const profilePhotoInput = document.getElementById('profilePhotoInput');
+  const profileRemovePhotoBtn = document.getElementById('profileRemovePhotoBtn');
+  const profileChangePasswordBtn = document.getElementById('profileChangePasswordBtn');
+  const profileOpenPerformanceBtn = document.getElementById('profileOpenPerformanceBtn');
+  if (profileEditPhotoBtn && profilePhotoInput) {
+    profileEditPhotoBtn.addEventListener('click', () => profilePhotoInput.click());
+    profilePhotoInput.addEventListener('change', onProfilePhotoSelected);
+  }
+  if (profileRemovePhotoBtn) profileRemovePhotoBtn.addEventListener('click', onProfilePhotoRemove);
+  if (profileChangePasswordBtn) profileChangePasswordBtn.addEventListener('click', openChangePassModal);
+  if (profileOpenPerformanceBtn) profileOpenPerformanceBtn.addEventListener('click', () => showPanel('performance'));
   if (primaryTabSelect) {
     primaryTabSelect.addEventListener('change', event => {
       showPanel(event.target.value);
@@ -11788,10 +12636,8 @@ async function init() {
   if (empModalForm) empModalForm.addEventListener('submit', onEmpDrawerSubmit);
 
   // Change password handlers
-  document.getElementById('changePassBtn').onclick = openChangePassModal;
-  document.getElementById('passModalClose').onclick = closeChangePassModal;
-  document.getElementById('cancelPassChange').onclick = closeChangePassModal;
-  document.getElementById('changePassForm').onsubmit = onChangePassSubmit;
+  initChangePassModal();
+  document.getElementById('changePassForm')?.addEventListener('submit', onChangePassSubmit);
 
   const empCancelBtn = document.getElementById('empCancelBtn');
   if (empCancelBtn) empCancelBtn.onclick = onEmpCancel;
@@ -11827,6 +12673,8 @@ async function loadEmployeesPortal() {
   let filteredEmps = activeEmps;
   if (currentUser && !isManagerRole(currentUser)) {
     filteredEmps = activeEmps.filter(e => e.id == currentUser.employeeId);
+  } else if (portalCompanyFilter && portalCompanyFilter !== 'all') {
+    filteredEmps = filteredEmps.filter(emp => employeeMatchesCompanyFilter(emp, portalCompanyFilter));
   }
   ['employeeSelect', 'reportSelect'].forEach(id => {
     const sel = document.getElementById(id);
@@ -11854,7 +12702,6 @@ async function onEmployeeChange() {
   const balCasual = document.getElementById('balCasual');
   const balMedical = document.getElementById('balMedical');
   const typeSel = document.getElementById('type');
-  const applyBtn = document.querySelector('#applyForm button[type="submit"]');
   if (!empId) {
     [balAnnual, balCasual, balMedical].forEach(el => {
       if (el) {
@@ -11865,10 +12712,7 @@ async function onEmployeeChange() {
     currentLeaveBalances = {};
     populateLeaveTypeOptions(typeSel, currentLeaveBalances);
     updateBalanceWarning(currentLeaveBalances);
-    if (applyBtn) {
-      applyBtn.disabled = true;
-      applyBtn.title = 'Select an employee to apply for leave.';
-    }
+    updateLeaveApplyValidation();
     document.getElementById('prevLeaves').innerHTML = '';
     return;
   }
@@ -11890,10 +12734,7 @@ async function onEmployeeChange() {
   // Set leave type options and warning
   const { hasEnabled } = populateLeaveTypeOptions(typeSel, currentLeaveBalances);
   updateBalanceWarning(currentLeaveBalances);
-  if (applyBtn) {
-    applyBtn.disabled = !hasEnabled;
-    applyBtn.title = hasEnabled ? '' : 'Applications are disabled because all leave types reached their negative limits.';
-  }
+  updateLeaveApplyValidation();
 
   // Show previous leaves
   renderPreviousLeaves(apps, emp);
@@ -11902,41 +12743,87 @@ async function onEmployeeChange() {
 // ----------- LEAVE APPLICATION SUBMISSION -----------
 function onApplySubmit(ev) {
   ev.preventDefault();
-  const empId = document.getElementById('employeeSelect').value;
-  const type = document.getElementById('type').value;
-  const from = document.getElementById('from').value;
-  const to = document.getElementById('to').value;
-  const halfDay = document.getElementById('halfDay').checked;
-  const halfDayPeriod = halfDay ? document.getElementById('halfDayPeriod').value : null;
+  const { empId, type, from, to, halfDay, halfDayPeriod } = getLeaveApplyFormValues();
   if (!empId || !type || !from || !to) {
     showToast('Please fill in all required leave details before continuing.', 'warning');
     return;
   }
-  if (currentLeaveBalances[type] < 0 && !isManagerRole(currentUser)) {
-    showToast('This leave type is disabled because the balance is negative.', 'warning');
+
+  const days = calculateLeaveDays(from, to, halfDay);
+  const balance = currentLeaveBalances[type] ?? 0;
+  const limit = LEAVE_NEGATIVE_LIMITS[type] || 0;
+  if (balance <= -limit) {
+    const message = `${capitalize(type)} leave is blocked because the balance (${roundToOneDecimal(balance)} days) is at or beyond the -${limit} day limit.`;
+    showToast(message, 'error');
+    updateLeaveApplyValidation();
     return;
   }
+
+  const validationError = validateLeaveBalanceClient(balance, type, days);
+  if (validationError) {
+    showToast(validationError, 'error');
+    updateLeaveApplyValidation();
+    return;
+  }
+
   pendingApply = { employeeId: +empId, type, from, to, halfDay, halfDayPeriod };
   openReasonModal();
 }
 
 function openReasonModal() {
-  document.getElementById('reasonInput').value = '';
-  document.getElementById('reasonModal').classList.remove('hidden');
-  setTimeout(() => document.getElementById('reasonInput').focus(), 100);
+  const modal = document.getElementById('reasonModal');
+  const input = document.getElementById('reasonInput');
+  if (input) input.value = '';
+  if (modal) {
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('app-dialog-open');
+  }
+  setTimeout(() => input?.focus(), 100);
 }
 function closeReasonModal() {
-  document.getElementById('reasonModal').classList.add('hidden');
+  const modal = document.getElementById('reasonModal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('app-dialog-open');
+  }
   pendingApply = null;
 }
 
 function openChangePassModal() {
-  document.getElementById('changePassForm').reset();
-  document.getElementById('changePassModal').classList.remove('hidden');
+  const modal = document.getElementById('changePassModal');
+  const form = document.getElementById('changePassForm');
+  if (!modal) return;
+  if (form) form.reset();
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('app-dialog-open');
+  setTimeout(() => document.getElementById('currentPassword')?.focus(), 100);
 }
 
 function closeChangePassModal() {
-  document.getElementById('changePassModal').classList.add('hidden');
+  const modal = document.getElementById('changePassModal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('app-dialog-open');
+}
+
+function initChangePassModal() {
+  const modal = document.getElementById('changePassModal');
+  if (!modal || modal.dataset.bound) return;
+  modal.dataset.bound = 'true';
+
+  document.getElementById('cancelPassChange')?.addEventListener('click', closeChangePassModal);
+  modal.querySelectorAll('[data-change-pass-dismiss]').forEach(el => {
+    el.addEventListener('click', closeChangePassModal);
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+      closeChangePassModal();
+    }
+  });
 }
 
 async function onChangePassSubmit(ev) {
@@ -11945,7 +12832,7 @@ async function onChangePassSubmit(ev) {
   const np = document.getElementById('newPassword').value.trim();
   const cp = document.getElementById('confirmPassword').value.trim();
   if (np !== cp) {
-    alert('Passwords do not match');
+    showToast('Passwords do not match.', 'error');
     return;
   }
   const res = await apiFetch('/change-password', {
@@ -11956,11 +12843,11 @@ async function onChangePassSubmit(ev) {
     body: JSON.stringify({ currentPassword: current, newPassword: np })
   });
   if (res.ok) {
-    alert('Password changed successfully');
+    showToast('Password changed successfully.', 'success');
     closeChangePassModal();
   } else {
     const data = await res.json().catch(() => ({}));
-    alert(data.error || 'Error changing password');
+    showToast(data.error || 'Error changing password.', 'error');
   }
 }
 async function onReasonSubmit(ev) {
@@ -11989,7 +12876,9 @@ async function onReasonSubmit(ev) {
       await onEmployeeChange();
     } else {
       const data = await res.json().catch(() => ({}));
-      showToast(data.error || 'Error applying leave.', 'error');
+      const message = data.error || data.message || 'Error applying leave.';
+      showToast(message, 'error');
+      updateLeaveApplyValidation();
     }
   } catch (err) {
     console.error(err);
@@ -12001,37 +12890,35 @@ async function onReasonSubmit(ev) {
 
 function renderPreviousLeaves(apps, emp) {
   const container = document.getElementById('prevLeaves');
+  if (!container) return;
   if (!apps.length) {
-    container.innerHTML = '<div class="text-muted" style="font-style:italic;">No leave applications yet.</div>';
+    container.innerHTML = '<p class="leave-history-empty">No leave requests yet.</p>';
     return;
   }
   const typeIcon = { annual: 'beach_access', casual: 'sunny', medical: 'medical_information' };
-  container.innerHTML = apps.sort((a,b)=>new Date(b.from)-new Date(a.from)).map(app => {
-    let days = calculateLeaveDays(app.from, app.to, app.halfDay);
-    let daysText = days;
-    let typeLabel = capitalize(app.type) + ' Leave';
+  container.innerHTML = apps.sort((a, b) => new Date(b.from) - new Date(a.from)).map(app => {
+    const days = calculateLeaveDays(app.from, app.to, app.halfDay);
+    let typeLabel = capitalize(app.type) + ' leave';
     if (app.halfDay) {
-      typeLabel += ` (Half Day${app.halfDayPeriod ? ' ' + app.halfDayPeriod : ''})`;
+      typeLabel += app.halfDayPeriod ? ` · half day ${app.halfDayPeriod}` : ' · half day';
     }
     const status = (app.status || 'pending').toLowerCase();
-    const statusClass = status === 'approved' ? 'status-approved' : status === 'rejected' ? 'status-rejected' : 'status-pending';
     const icon = typeIcon[app.type] || 'event';
+    const period = app.from === app.to
+      ? formatShortDate(app.from)
+      : `${formatShortDate(app.from)} – ${formatShortDate(app.to)}`;
     return `
-      <article class="history-card ${statusClass}">
-        <div class="history-top-row">
-          <div class="history-header">
-            <span class="material-symbols-rounded">${icon}</span>
-            <span>${typeLabel}</span>
-          </div>
-          <span class="status-badge">${capitalize(app.status||'pending')}</span>
+      <article class="leave-history-item leave-history-item--${status}">
+        <div class="leave-history-item__icon" aria-hidden="true">
+          <span class="material-symbols-rounded">${icon}</span>
         </div>
-        <div class="history-body">
-          <div class="text-muted"><strong>From:</strong> ${app.from}</div>
-          <div class="text-muted"><strong>To:</strong> ${app.to}</div>
-          <div class="text-muted"><strong>Days:</strong> ${daysText}</div>
-          <div class="text-muted"><strong>Reason:</strong> <span class="text-quiet">${app.reason||'-'}</span></div>
-          ${app.approvedBy ? `<div class="text-quiet">Approver: ${app.approvedBy}</div>` : ''}
-          ${app.approverRemark ? `<div class="text-quiet">Remark: ${app.approverRemark}</div>` : ''}
+        <div class="leave-history-item__body">
+          <div class="leave-history-item__top">
+            <span class="leave-history-item__type">${escapeHtml(typeLabel)}</span>
+            <span class="leave-history-item__status">${escapeHtml(capitalize(app.status || 'pending'))}</span>
+          </div>
+          <p class="leave-history-item__dates">${escapeHtml(period)} · ${days} day${days === 1 ? '' : 's'}</p>
+          ${app.reason ? `<p class="leave-history-item__reason">${escapeHtml(app.reason)}</p>` : ''}
         </div>
       </article>
     `;
@@ -12061,14 +12948,20 @@ function calculateLeaveDays(from, to, halfDay) {
 // ========== MANAGER LEAVE APPLICATIONS TAB LOGIC ==========
 
 async function loadManagerApplications() {
-  // Get all pending applications
   const apps = await getJSON('/applications?status=pending');
   const emps = await getJSON('/employees');
   const list = document.getElementById('managerAppsList');
-  if (!apps.length) {
-    list.innerHTML = `<div class="text-muted" style="font-style:italic;">No pending leave applications.</div>`;
+  const filteredApps = (Array.isArray(apps) ? apps : []).filter(app =>
+    applicationMatchesDepartmentFilter(app, emps, portalCompanyFilter)
+  );
+
+  if (!filteredApps.length) {
+    const emptyMessage = portalCompanyFilter && portalCompanyFilter !== 'all'
+      ? 'No pending leave applications for this department.'
+      : 'No pending leave applications.';
+    list.innerHTML = `<div class="text-muted" style="font-style:italic;">${emptyMessage}</div>`;
   } else {
-    list.innerHTML = apps.map(app => {
+    list.innerHTML = filteredApps.map(app => {
       const emp = emps.find(e => e.id == app.employeeId);
       let days = calculateLeaveDays(app.from, app.to, app.halfDay);
       let daysText = days;
@@ -12105,13 +12998,8 @@ async function loadManagerApplications() {
     }).join('');
   }
   // show today leave employees
-  await loadOnLeaveToday();  // <== 👈 keep this call
-
-  // === NEW: Upcoming Approved Leaves (next 1 month) ===
+  await loadOnLeaveToday();
   await loadManagerUpcomingLeaves();
-
-  // Show cancel for future approved as well
-  await loadManagerUpcomingLeaves(true);
 }
 
 
@@ -12129,7 +13017,8 @@ async function loadOnLeaveToday() {
     const onLeave = apps.filter(app =>
       app.status === 'approved' &&
       new Date(app.from) <= new Date(today) &&
-      new Date(app.to) >= new Date(today)
+      new Date(app.to) >= new Date(today) &&
+      applicationMatchesDepartmentFilter(app, emps, portalCompanyFilter)
     );
 
     if (!onLeave.length) {
@@ -12163,7 +13052,7 @@ async function loadOnLeaveToday() {
   }
 }
 
-async function loadManagerUpcomingLeaves(showCancel = false) {
+async function loadManagerUpcomingLeaves() {
   const list = document.getElementById('managerUpcomingList');
   if (!list) return;
   const allApproved = await getJSON('/applications?status=approved');
@@ -12172,20 +13061,22 @@ async function loadManagerUpcomingLeaves(showCancel = false) {
   const oneMonthLater = new Date();
   oneMonthLater.setMonth(now.getMonth() + 1);
 
-  const filtered = showCancel
-    ? allApproved
-    : allApproved.filter(app => {
-      const from = new Date(app.from);
-      const to = new Date(app.to);
-      return (
-        (from >= now && from <= oneMonthLater) ||
-        (to >= now && to <= oneMonthLater) ||
-        (from <= now && to >= now)
-      );
-    });
+  const filtered = (Array.isArray(allApproved) ? allApproved : []).filter(app => {
+    const from = new Date(app.from);
+    const to = new Date(app.to);
+    const inRange = (
+      (from >= now && from <= oneMonthLater) ||
+      (to >= now && to <= oneMonthLater) ||
+      (from <= now && to >= now)
+    );
+    return inRange && applicationMatchesDepartmentFilter(app, emps, portalCompanyFilter);
+  });
 
   if (!filtered.length) {
-    list.innerHTML = `<div class="text-muted" style="font-style:italic;">${showCancel ? 'No approved leaves available to cancel.' : 'No upcoming approved leaves in the next 1 month.'}</div>`;
+    const emptyMessage = portalCompanyFilter && portalCompanyFilter !== 'all'
+      ? 'No upcoming approved leaves for this department.'
+      : 'No upcoming approved leaves in the next 1 month.';
+    list.innerHTML = `<div class="text-muted" style="font-style:italic;">${emptyMessage}</div>`;
     return;
   }
 
@@ -12199,7 +13090,7 @@ async function loadManagerUpcomingLeaves(showCancel = false) {
     if (app.halfDay) {
       typeLabel += ` (Half Day${app.halfDayPeriod ? ' ' + app.halfDayPeriod : ''})`;
     }
-    const canCancel = showCancel ? isManagerRole(currentUser) : new Date(app.from) > now;
+    const canCancel = isManagerRole(currentUser) && new Date(app.to) >= now;
     const icon = typeIcon[app.type] || 'event_available';
     return `
       <article class="list-card">
@@ -12265,22 +13156,36 @@ window.approveApp = async function(id, approve, buttonEl) {
   }
 };
 
-// NEW: Cancel Leave Functionality for Manager
+// Cancel leave — uses app dialog instead of browser confirm
 window.cancelApp = async function(appId) {
-  if (!confirm("Are you sure to cancel this leave application?")) return;
-  const res = await apiFetch(`/applications/${appId}/cancel`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      manager: currentUser ? currentUser.email : ''
-    })
+  const confirmed = await showConfirmDialog({
+    title: 'Cancel leave?',
+    message: 'This will cancel the leave request. If it was already approved, the balance will be restored.',
+    confirmLabel: 'Cancel leave',
+    cancelLabel: 'Keep leave',
+    variant: 'danger',
+    icon: 'event_busy'
   });
-  if (res.ok) {
-    alert('Leave cancelled.');
-    await loadManagerApplications();
-    await onEmployeeChange();
-  } else {
-    alert('Failed to cancel leave.');
+  if (!confirmed) return;
+
+  try {
+    const res = await apiFetch(`/applications/${appId}/cancel`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        manager: currentUser ? currentUser.email : ''
+      })
+    });
+    if (res.ok) {
+      showToast('Leave cancelled.', 'success');
+      await loadManagerApplications();
+      await onEmployeeChange();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || 'Failed to cancel leave.', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to cancel leave.', 'error');
   }
 };
 
@@ -12322,6 +13227,10 @@ async function loadEmployeesManage() {
   if (internFilterSelect && internFilterSelect.value !== employeeGridState.internFilter) {
     internFilterSelect.value = employeeGridState.internFilter;
   }
+  const companyFilterSelect = document.getElementById('employeeCompanyFilter');
+  if (companyFilterSelect && companyFilterSelect.value !== employeeGridState.companyFilter) {
+    companyFilterSelect.value = employeeGridState.companyFilter;
+  }
 
   const sampleEmployee = normalizedEmps[0] || {};
   const findKey = (aliases, fallback = '') => {
@@ -12352,19 +13261,37 @@ async function loadEmployeesManage() {
 
   const activeCount = normalizedEmps.filter(e => isActiveEmployeeStatus(e[statusKey])).length;
   const internCount = normalizedEmps.filter(e => normalizeInternFlag(e[internFlagKey])).length;
-  const deptSet = new Set(
-    normalizedEmps
-      .map(e => (departmentKey ? (e[departmentKey] || 'Unassigned') : null))
-      .filter(Boolean)
-  );
+  const deptCount = companyUnits.length
+    ? companyUnits.length
+    : new Set(normalizedEmps.map(e => e.companyUnitId).filter(Boolean)).size;
   metric('totalEmployeesMetric', normalizedEmps.length);
   metric('activeCountNum', activeCount);
   metric('internCountMetric', internCount);
-  metric('departmentCountMetric', deptSet.size);
+  metric('departmentCountMetric', deptCount);
 
-  const baseHiddenKeys = new Set(['id', 'leavebalances', 'password']);
+  const baseHiddenKeys = new Set(['id', '_id', '__v', 'leavebalances', 'password', 'companyunitid', 'leavemigration', 'no']);
+  const defaultHiddenColumnKeys = new Set([
+    'leavemigration',
+    'casualeaveentitlement',
+    'medicalleaveentitlement',
+    'annualleaveentitlement',
+    'companyunitid',
+    'leavebalances',
+    '_id',
+    'no',
+    'eligiblefor2025review'
+  ]);
+  const isInternalOptionalKey = (key) => {
+    const lower = String(key).toLowerCase();
+    if (lower.startsWith('_')) return true;
+    if (baseHiddenKeys.has(lower)) return true;
+    if (/leaveentitlement$/i.test(lower)) return true;
+    if (/^employee(id|no)$/i.test(lower)) return true;
+    return false;
+  };
   const optionalKeys = Object.keys(sampleEmployee).filter(k => {
     const lower = k.toLowerCase();
+    if (isInternalOptionalKey(k)) return false;
     return ![
       nameKey.toLowerCase(),
       statusKey.toLowerCase(),
@@ -12374,31 +13301,38 @@ async function loadEmployeesManage() {
       (supervisorKey || '').toLowerCase(),
       (employeeIdKey || '').toLowerCase(),
       (departmentKey || '').toLowerCase()
-    ].includes(lower) && !baseHiddenKeys.has(lower);
+    ].includes(lower);
   });
 
   const buildColumns = () => {
     const cols = [
-      { key: nameKey, label: 'Name', sticky: 'name', sortable: true, width: 220, truncate: true, alwaysVisible: true },
-      { key: statusKey, label: 'Status', sticky: 'status', sortable: true, width: 150, type: 'status', alwaysVisible: true }
+      { key: nameKey, label: 'Name', sortable: true, width: 200, truncate: true, alwaysVisible: true },
+      { key: statusKey, label: 'Status', sortable: true, width: 110, type: 'status', alwaysVisible: true }
     ];
-    if (titleKey) cols.push({ key: titleKey, label: 'Title', sortable: true, width: 170, type: 'title', truncate: true });
-    cols.push({ key: internFlagKey, label: 'Intern', width: 120, type: 'intern' });
-    if (emailKey) cols.push({ key: emailKey, label: 'Email', width: 220, truncate: true });
-    if (supervisorKey) cols.push({ key: supervisorKey, label: 'Supervisor', width: 200, truncate: true });
-    if (employeeIdKey) cols.push({ key: employeeIdKey, label: 'ID', width: 140, truncate: true });
-    if (departmentKey) cols.push({ key: departmentKey, label: 'Department', sortable: true, width: 160 });
-    optionalKeys.forEach(key => {
-      cols.push({ key, label: key.charAt(0).toUpperCase() + key.slice(1), width: 160, truncate: true });
+    if (titleKey) cols.push({ key: titleKey, label: 'Title', sortable: true, width: 160, type: 'title', truncate: true });
+    cols.push({ key: internFlagKey, label: 'Type', width: 130, type: 'intern' });
+    if (emailKey) cols.push({ key: emailKey, label: 'Email', width: 200, truncate: true });
+    if (supervisorKey) cols.push({ key: supervisorKey, label: 'Supervisor', width: 180, truncate: true });
+    if (departmentKey) cols.push({ key: departmentKey, label: 'Team', sortable: true, width: 120, truncate: true });
+    cols.push({
+      key: '__orgUnit',
+      label: 'Department',
+      width: 120,
+      type: 'orgUnit',
+      getValue: emp => getCompanyUnitName(emp.companyUnitId) || ''
     });
-    cols.push({ key: 'actions', label: 'Actions', sticky: 'actions', width: 230, type: 'actions', alwaysVisible: true });
+    optionalKeys.forEach(key => {
+      cols.push({ key, label: key.charAt(0).toUpperCase() + key.slice(1), width: 140, truncate: true });
+    });
+    cols.push({ key: 'actions', label: '', width: 100, type: 'actions', alwaysVisible: true });
     return cols;
   };
 
   const columns = buildColumns();
   columns.forEach(col => {
     if (employeeGridState.columnVisibility[col.key] === undefined) {
-      employeeGridState.columnVisibility[col.key] = true;
+      const hiddenByDefault = defaultHiddenColumnKeys.has(String(col.key).toLowerCase());
+      employeeGridState.columnVisibility[col.key] = !hiddenByDefault;
     }
     if (employeeGridState.columnWidths[col.key] === undefined && col.width) {
       employeeGridState.columnWidths[col.key] = col.width;
@@ -12412,6 +13346,7 @@ async function loadEmployeesManage() {
     const isIntern = normalizeInternFlag(emp[internFlagKey]);
     if (employeeGridState.internFilter === 'intern' && !isIntern) return false;
     if (employeeGridState.internFilter === 'fte' && isIntern) return false;
+    if (!employeeMatchesCompanyFilter(emp, employeeGridState.companyFilter)) return false;
     if (!searchValue) return true;
     return Object.entries(emp).some(([key, value]) => {
       if (key.toLowerCase() === 'id') return false;
@@ -12422,6 +13357,11 @@ async function loadEmployeesManage() {
       return String(value).toLowerCase().includes(searchValue);
     });
   });
+
+  const directorySubtitle = document.getElementById('empDirectorySubtitle');
+  if (directorySubtitle) {
+    directorySubtitle.textContent = `${filtered.length} shown · ${normalizedEmps.length} total`;
+  }
 
   const renderPills = () => {
     const pillContainer = document.getElementById('dataGridPills');
@@ -12437,7 +13377,15 @@ async function loadEmployeesManage() {
       const label = employeeGridState.internFilter === 'intern' ? 'Interns' : 'Full-time';
       pills.push(`<span class="data-grid__pill"><span class="material-symbols-rounded">workspace_premium</span>${label}</span>`);
     }
-    pillContainer.innerHTML = pills.length ? pills.join('') : '<span class="text-muted">No filters applied</span>';
+    if (employeeGridState.companyFilter !== 'all') {
+      const label = employeeGridState.companyFilter === 'unassigned'
+        ? 'Unassigned department'
+        : (getCompanyUnitName(employeeGridState.companyFilter) || employeeGridState.companyFilter);
+      pills.push(`<span class="data-grid__pill"><span class="material-symbols-rounded">corporate_fare</span>${escapeHtml(label)}</span>`);
+    }
+    pillContainer.innerHTML = pills.length
+      ? `<div class="emp-active-filters">${pills.join('')}</div>`
+      : '';
   };
 
   if (!employeeGridState.sort.key) {
@@ -12472,21 +13420,30 @@ async function loadEmployeesManage() {
 
   const renderValue = (value) => {
     if (value === null || typeof value === 'undefined') return '';
-    if (typeof value === 'object') return escapeHtml(JSON.stringify(value));
+    if (typeof value === 'object') {
+      if (value.lastRunAt) return escapeHtml(String(value.lastRunAt).slice(0, 10));
+      return '';
+    }
     return escapeHtml(String(value));
   };
 
   const renderStatusBadge = status => {
-    const normalized = String(status || '').toLowerCase();
+    const normalized = String(status || 'unknown').toLowerCase();
     const active = normalized === 'active';
-    const badgeClass = active ? 'badge--success' : 'badge--neutral';
     const label = status || 'Unknown';
-    return `<span class="badge ${badgeClass}">${escapeHtml(label)}</span>`;
+    return `<span class="emp-status emp-status--${active ? 'active' : 'inactive'}">${escapeHtml(label)}</span>`;
   };
 
   const renderTitleBadge = title => {
-    if (!title) return '<span class="text-muted">-</span>';
-    return `<span class="badge badge--info">${escapeHtml(title)}</span>`;
+    if (!title) return '<span class="text-muted">—</span>';
+    return `<span class="emp-cell-text">${escapeHtml(String(title))}</span>`;
+  };
+
+  const getEmployeeInitials = (name) => {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
   };
 
   const renderHeader = () => {
@@ -12528,13 +13485,14 @@ async function loadEmployeesManage() {
         if (col.type === 'intern') {
           const isOn = normalizeInternFlag(value);
           return `<td data-col-key="${col.key}" style="min-width:${width}px;max-width:${width}px;width:${width}px;">
-            <div style="display:flex;align-items:center;gap:10px;">
-              <span class="badge ${isOn ? 'badge--warning' : 'badge--neutral'}">${isOn ? 'Intern' : 'Full-time'}</span>
-              <label class="intern-toggle ${isOn ? 'is-on' : ''}">
+            <div class="emp-type-cell">
+              <span class="emp-type-label">${isOn ? 'Intern' : 'Full-time'}</span>
+              <label class="intern-toggle ${isOn ? 'is-on' : ''}" title="Toggle intern">
                 <input
                   type="checkbox"
                   class="intern-flag-toggle sr-only"
                   data-employee-id="${escapeHtml(String(emp.id ?? ''))}"
+                  data-was-intern="${isOn ? '1' : '0'}"
                   ${isOn ? 'checked' : ''}
                   aria-label="Toggle intern flag for ${escapeHtml(emp[nameKey] ?? 'employee')}"
                 >
@@ -12542,14 +13500,22 @@ async function loadEmployeesManage() {
             </div>
           </td>`;
         }
+        if (col.type === 'orgUnit') {
+          const unitName = col.getValue ? col.getValue(emp) : '';
+          return `<td data-col-key="${col.key}" class="cell-ellipsis" style="min-width:${width}px;max-width:${width}px;width:${width}px;">${unitName ? escapeHtml(unitName) : '<span class="text-muted">—</span>'}</td>`;
+        }
         if (col.type === 'actions') {
-          return `<td data-col-key="${col.key}" class="${stickyClass}" style="min-width:${width}px;max-width:${width}px;width:${width}px;">
-            <div class="table-actions">
-              <button onclick="openEditEmployee('${emp.id}')">Edit</button>
-              <button data-action="toggle" data-id="${emp.id}" class="${emp[statusKey]==='active' ? 'action-danger' : ''}">
-                ${emp[statusKey] === 'active' ? 'Deactivate' : 'Activate'}
+          return `<td data-col-key="${col.key}" class="emp-actions-cell" style="min-width:${width}px;max-width:${width}px;width:${width}px;">
+            <div class="emp-row-actions">
+              <button type="button" class="emp-action-btn" title="Edit" onclick="openEditEmployee('${emp.id}')">
+                <span class="material-symbols-rounded">edit</span>
               </button>
-              <button data-action="delete" data-id="${emp.id}" class="action-danger">Delete</button>
+              <button type="button" class="emp-action-btn ${emp[statusKey] === 'active' ? 'emp-action-btn--warn' : 'emp-action-btn--ok'}" data-action="toggle" data-id="${emp.id}" title="${emp[statusKey] === 'active' ? 'Deactivate' : 'Activate'}">
+                <span class="material-symbols-rounded">${emp[statusKey] === 'active' ? 'person_off' : 'person_check'}</span>
+              </button>
+              <button type="button" class="emp-action-btn emp-action-btn--danger" data-action="delete" data-id="${emp.id}" title="Delete">
+                <span class="material-symbols-rounded">delete</span>
+              </button>
             </div>
           </td>`;
         }
@@ -12568,7 +13534,7 @@ async function loadEmployeesManage() {
       ];
 
       return `
-        <tr class="data-row" data-row-id="${rowId}">${cells}</tr>
+        <tr class="data-row" data-row-id="${rowId}" data-employee-id="${escapeHtml(String(emp.id ?? ''))}">${cells}</tr>
         <tr class="detail-row ${expanded ? '' : 'hidden'}" data-detail-for="${rowId}">
           <td colspan="${visibleColumns.length}">
             <div class="detail-grid">
@@ -12585,29 +13551,32 @@ async function loadEmployeesManage() {
   };
 
   const renderPagination = () => {
-    if (!pagination) return;
-    pagination.innerHTML = `
-      <div class="data-grid__pill">
-        <span class="material-symbols-rounded">group</span>
-        ${filtered.length} of ${normalizedEmps.length} employees
-      </div>
-      <div class="pagination-buttons">
-        <button data-page="prev" ${employeeGridState.page === 1 ? 'disabled' : ''}>Prev</button>
+    const paginationHtml = `
+      <div class="emp-pagination-meta">
+        <span>${filtered.length} of ${normalizedEmps.length}</span>
+        <span class="emp-pagination-divider">·</span>
         <span>Page ${employeeGridState.page} / ${totalPages}</span>
-        <button data-page="next" ${employeeGridState.page === totalPages ? 'disabled' : ''}>Next</button>
+      </div>
+      <div class="pagination-buttons emp-pagination-buttons">
+        <button type="button" class="md-button md-button--outlined md-button--small" data-page="prev" ${employeeGridState.page === 1 ? 'disabled' : ''}>Previous</button>
+        <button type="button" class="md-button md-button--outlined md-button--small" data-page="next" ${employeeGridState.page === totalPages ? 'disabled' : ''}>Next</button>
       </div>
     `;
-    pagination.querySelector('[data-page="prev"]')?.addEventListener('click', () => {
-      if (employeeGridState.page > 1) {
-        employeeGridState.page -= 1;
-        loadEmployeesManage();
-      }
-    });
-    pagination.querySelector('[data-page="next"]')?.addEventListener('click', () => {
-      if (employeeGridState.page < totalPages) {
-        employeeGridState.page += 1;
-        loadEmployeesManage();
-      }
+    [pagination, document.getElementById('empCardPagination')].forEach(el => {
+      if (!el) return;
+      el.innerHTML = paginationHtml;
+      el.querySelector('[data-page="prev"]')?.addEventListener('click', () => {
+        if (employeeGridState.page > 1) {
+          employeeGridState.page -= 1;
+          loadEmployeesManage();
+        }
+      });
+      el.querySelector('[data-page="next"]')?.addEventListener('click', () => {
+        if (employeeGridState.page < totalPages) {
+          employeeGridState.page += 1;
+          loadEmployeesManage();
+        }
+      });
     });
   };
 
@@ -12643,10 +13612,26 @@ async function loadEmployeesManage() {
   const columnTrigger = document.querySelector('#columnTogglePanel .column-visibility__trigger');
   if (columnTrigger && columnMenu && !columnTrigger.dataset.bound) {
     columnTrigger.dataset.bound = 'true';
-    columnTrigger.addEventListener('click', () => columnMenu.classList.toggle('is-open'));
+    columnTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const willOpen = !columnMenu.classList.contains('is-open');
+      columnMenu.classList.toggle('is-open');
+      if (willOpen) {
+        document.body.classList.add('emp-column-menu-open');
+      } else {
+        document.body.classList.remove('emp-column-menu-open');
+      }
+    });
+    columnMenu.addEventListener('wheel', (e) => {
+      if (!columnMenu.classList.contains('is-open')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      columnMenu.scrollTop += e.deltaY;
+    }, { passive: false });
     document.addEventListener('click', e => {
       if (!columnMenu.contains(e.target) && !columnTrigger.contains(e.target)) {
         columnMenu.classList.remove('is-open');
+        document.body.classList.remove('emp-column-menu-open');
       }
     });
   }
@@ -12705,43 +13690,49 @@ async function loadEmployeesManage() {
     }
     grid.innerHTML = pageRows.map(emp => {
       const statusBadge = renderStatusBadge(emp[statusKey]);
-      const titleBadge = titleKey ? renderTitleBadge(emp[titleKey]) : '';
       const supervisor = supervisorKey ? renderValue(emp[supervisorKey]) : '';
       const email = emailKey ? renderValue(emp[emailKey]) : '';
       const name = renderValue(emp[nameKey]);
+      const title = titleKey ? renderValue(emp[titleKey]) : '';
+      const deptLabel = emp.companyUnitId
+        ? escapeHtml(getCompanyUnitName(emp.companyUnitId) || emp.companyUnitId)
+        : (departmentKey && emp[departmentKey] ? renderValue(emp[departmentKey]) : '—');
+      const isIntern = normalizeInternFlag(emp[internFlagKey]);
+      const initials = getEmployeeInitials(emp[nameKey]);
       return `
-        <article class="employee-card hover-rise">
-          <div class="employee-card__header">
-            <div>
-              <p class="employee-card__name">${name || 'Unnamed'}</p>
-              <p class="employee-card__title">${titleKey ? renderValue(emp[titleKey]) : ''}</p>
+        <article class="emp-card">
+          <div class="emp-card__top">
+            <div class="emp-card__avatar" aria-hidden="true">${escapeHtml(initials)}</div>
+            <div class="emp-card__identity">
+              <h4 class="emp-card__name">${name || 'Unnamed'}</h4>
+              <p class="emp-card__role">${title || '—'}</p>
             </div>
             ${statusBadge}
           </div>
-          <div class="employee-card__meta">
-            <div>
-              <small>Title</small>
-              <p>${titleBadge || '<span class="text-muted">-</span>'}</p>
-            </div>
-            <div>
-              <small>Email</small>
-              <p class="cell-ellipsis" title="${email}">${email || '<span class="text-muted">-</span>'}</p>
-            </div>
-            <div>
-              <small>Supervisor</small>
-              <p class="cell-ellipsis" title="${supervisor}">${supervisor || '<span class="text-muted">-</span>'}</p>
-            </div>
-            <div>
-              <small>Type</small>
-              <p><span class="badge ${normalizeInternFlag(emp[internFlagKey]) ? 'badge--warning' : 'badge--neutral'}">${normalizeInternFlag(emp[internFlagKey]) ? 'Intern' : 'Full-time'}</span></p>
-            </div>
-            <div>
-              <small>Status</small>
-              <p>${statusBadge}</p>
-            </div>
+          <dl class="emp-card__details">
+            <div><dt>Email</dt><dd class="cell-ellipsis" title="${email}">${email || '—'}</dd></div>
+            <div><dt>Department</dt><dd>${deptLabel}</dd></div>
+            <div><dt>Supervisor</dt><dd class="cell-ellipsis" title="${supervisor}">${supervisor || '—'}</dd></div>
+            <div><dt>Type</dt><dd>${isIntern ? 'Intern' : 'Full-time'}</dd></div>
+          </dl>
+          <div class="emp-card__footer">
+            <button type="button" class="md-button md-button--outlined md-button--small" onclick="openEditEmployee('${emp.id}')">
+              <span class="material-symbols-rounded">edit</span>
+              Edit
+            </button>
+            <button type="button" class="md-button md-button--outlined md-button--small" data-action="toggle" data-id="${emp.id}">
+              ${emp[statusKey] === 'active' ? 'Deactivate' : 'Activate'}
+            </button>
           </div>
         </article>`;
     }).join('');
+
+    grid.querySelectorAll('[data-action="toggle"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const fakeEvent = { target: btn };
+        onEmpTableClick(fakeEvent);
+      });
+    });
   };
 
   enableSorting();
@@ -12772,7 +13763,18 @@ async function onInternFlagChange(event) {
   if (!employeeId) return;
 
   const isIntern = checkbox.checked;
+  const wasIntern = checkbox.dataset.wasIntern === '1';
   checkbox.disabled = true;
+
+  const updateRowUi = (nextIsIntern) => {
+    const row = checkbox.closest('tr.data-row');
+    if (!row) return;
+    const label = row.querySelector('.emp-type-label');
+    const toggle = row.querySelector('.intern-toggle');
+    if (label) label.textContent = nextIsIntern ? 'Intern' : 'Full-time';
+    if (toggle) toggle.classList.toggle('is-on', nextIsIntern);
+    checkbox.dataset.wasIntern = nextIsIntern ? '1' : '0';
+  };
 
   try {
     const res = await apiFetch(`/employees/${employeeId}`, {
@@ -12783,10 +13785,17 @@ async function onInternFlagChange(event) {
     if (!res.ok) {
       throw new Error(`Failed to update intern flag for employee ${employeeId}`);
     }
-    showToast(`Intern flag ${isIntern ? 'enabled' : 'disabled'} for this employee.`, 'success');
+    updateRowUi(isIntern);
+    const metricEl = document.getElementById('internCountMetric');
+    if (metricEl && wasIntern !== isIntern) {
+      const count = parseInt(metricEl.textContent, 10) || 0;
+      metricEl.textContent = Math.max(0, count + (isIntern ? 1 : -1));
+    }
+    showToast(`Marked as ${isIntern ? 'intern' : 'full-time'}.`, 'success');
   } catch (err) {
     console.error(err);
-    checkbox.checked = !isIntern;
+    checkbox.checked = wasIntern;
+    updateRowUi(wasIntern);
     showToast('Unable to update intern flag. Please try again.', 'error');
   } finally {
     checkbox.disabled = false;

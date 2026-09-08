@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"}],"uuid":"1dfb62709e7c4755a35b9e0413d759a8","collectionName":"learningRoleAssignments","type":"collection"}
