@@ -7201,7 +7201,7 @@ init().then(async () => {
         from: normalizedFrom,
         to: normalizedTo
       };
-      await sendEmail(
+      void sendEmail(
         recipientEmails,
         renderTemplate(templates.requestSubject, templateVars),
         renderTemplate(templates.requestBody, templateVars)
@@ -8766,24 +8766,27 @@ init().then(async () => {
     refreshEmployeeLeaveBalances(employee, db.data);
     await db.write();
 
-    const email = getEmpEmail(employee);
-    const name = employee?.name || email || `Employee ${db.data.applications[appIdx].employeeId}`;
-    if (email) {
-      const templates = (await loadEmailSettings())?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
-      const templateVars = {
-        name,
-        type: db.data.applications[appIdx].type,
-        from: db.data.applications[appIdx].from,
-        to: db.data.applications[appIdx].to
-      };
-      await sendEmail(
-        email,
-        renderTemplate(templates.approveSubject, templateVars),
-        renderTemplate(templates.approveBody, templateVars)
-      );
-    }
+    const approvedApp = db.data.applications[appIdx];
+    res.json(approvedApp);
 
-    res.json(db.data.applications[appIdx]);
+    const email = getEmpEmail(employee);
+    const name = employee?.name || email || `Employee ${approvedApp.employeeId}`;
+    if (email) {
+      void (async () => {
+        const templates = (await loadEmailSettings())?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
+        const templateVars = {
+          name,
+          type: approvedApp.type,
+          from: approvedApp.from,
+          to: approvedApp.to
+        };
+        await sendEmail(
+          email,
+          renderTemplate(templates.approveSubject, templateVars),
+          renderTemplate(templates.approveBody, templateVars)
+        );
+      })();
+    }
   });
 
   // ---- REJECT LEAVE ----
@@ -8806,22 +8809,25 @@ init().then(async () => {
     if (employee) refreshEmployeeLeaveBalances(employee, db.data);
     await db.write();
 
+    const rejectedApp = db.data.applications[appIdx];
+    res.json(rejectedApp);
+
     const emp = db.data.employees.find(e => e.id == app.employeeId);
     const email = getEmpEmail(emp);
     const name = emp?.name || email || `Employee ${app.employeeId}`;
     if (email) {
-      const templates = (await loadEmailSettings())?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
       const managerNote = remark?.toString().trim()
         || 'Please reply if you’d like to discuss alternative dates or have questions.';
-      const templateVars = { name, type: app.type, from: app.from, to: app.to, managerNote };
-      await sendEmail(
-        email,
-        renderTemplate(templates.rejectSubject, templateVars),
-        renderTemplate(templates.rejectBody, templateVars)
-      );
+      void (async () => {
+        const templates = (await loadEmailSettings())?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
+        const templateVars = { name, type: app.type, from: app.from, to: app.to, managerNote };
+        await sendEmail(
+          email,
+          renderTemplate(templates.rejectSubject, templateVars),
+          renderTemplate(templates.rejectBody, templateVars)
+        );
+      })();
     }
-
-    res.json(db.data.applications[appIdx]);
   });
 
   // ---- CANCEL LEAVE ----
@@ -8853,25 +8859,28 @@ init().then(async () => {
     if (employee) refreshEmployeeLeaveBalances(employee, db.data);
     await db.write();
 
+    const cancelledApp = db.data.applications[appIdx];
+    res.json(cancelledApp);
+
     const emp = db.data.employees.find(e => e.id == appObjApp.employeeId);
     const email = getEmpEmail(emp);
     const name = emp?.name || email || `Employee ${appObjApp.employeeId}`;
     if (email) {
-      const templates = (await loadEmailSettings())?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
-      const templateVars = {
-        name,
-        type: appObjApp.type,
-        from: appObjApp.from,
-        to: appObjApp.to
-      };
-      await sendEmail(
-        email,
-        renderTemplate(templates.cancelSubject, templateVars),
-        renderTemplate(templates.cancelBody, templateVars)
-      );
+      void (async () => {
+        const templates = (await loadEmailSettings())?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
+        const templateVars = {
+          name,
+          type: appObjApp.type,
+          from: appObjApp.from,
+          to: appObjApp.to
+        };
+        await sendEmail(
+          email,
+          renderTemplate(templates.cancelSubject, templateVars),
+          renderTemplate(templates.cancelBody, templateVars)
+        );
+      })();
     }
-
-    res.json(db.data.applications[appIdx]);
   });
 
   // (Legacy/optional: PATCH by status field)
