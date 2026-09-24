@@ -492,6 +492,43 @@ function getLeaveApplyFormValues() {
   return { empId, type, from, to, halfDay, halfDayPeriod };
 }
 
+function clearLeaveApplyFeedback() {
+  const errorEl = document.getElementById('leaveApplyError');
+  const successEl = document.getElementById('leaveApplySuccess');
+  if (errorEl) {
+    errorEl.textContent = '';
+    errorEl.classList.add('hidden');
+  }
+  if (successEl) {
+    successEl.textContent = '';
+    successEl.classList.add('hidden');
+  }
+}
+
+function setLeaveApplyError(message) {
+  const errorEl = document.getElementById('leaveApplyError');
+  const successEl = document.getElementById('leaveApplySuccess');
+  if (successEl) {
+    successEl.textContent = '';
+    successEl.classList.add('hidden');
+  }
+  if (!errorEl) return;
+  errorEl.textContent = message || '';
+  errorEl.classList.toggle('hidden', !message);
+}
+
+function setLeaveApplySuccess(message) {
+  const errorEl = document.getElementById('leaveApplyError');
+  const successEl = document.getElementById('leaveApplySuccess');
+  if (errorEl) {
+    errorEl.textContent = '';
+    errorEl.classList.add('hidden');
+  }
+  if (!successEl) return;
+  successEl.textContent = message || '';
+  successEl.classList.toggle('hidden', !message);
+}
+
 function updateLeaveApplyValidation() {
   const errorEl = document.getElementById('leaveApplyError');
   const applyBtn = document.getElementById('leaveApplyBtn') || document.querySelector('#applyForm button[type="submit"]');
@@ -1526,6 +1563,7 @@ function initAppDialog() {
   if (reasonModal && !reasonModal.dataset.bound) {
     reasonModal.dataset.bound = 'true';
     reasonModal.addEventListener('click', event => {
+      if (leaveApplicationSubmitting) return;
       if (event.target.closest('[data-app-dialog-dismiss]')) {
         closeReasonModal();
       }
@@ -12121,6 +12159,7 @@ function fileToBase64(file) {
 }
 
 let pendingApply = null;
+let leaveApplicationSubmitting = false;
 let editId = null;
 let drawerEditId = null;
 let empModalKeydownHandler = null;
@@ -12743,6 +12782,7 @@ async function onEmployeeChange() {
 // ----------- LEAVE APPLICATION SUBMISSION -----------
 function onApplySubmit(ev) {
   ev.preventDefault();
+  if (leaveApplicationSubmitting) return;
   const { empId, type, from, to, halfDay, halfDayPeriod } = getLeaveApplyFormValues();
   if (!empId || !type || !from || !to) {
     showToast('Please fill in all required leave details before continuing.', 'warning');
@@ -12766,6 +12806,7 @@ function onApplySubmit(ev) {
     return;
   }
 
+  clearLeaveApplyFeedback();
   pendingApply = { employeeId: +empId, type, from, to, halfDay, halfDayPeriod };
   openReasonModal();
 }
@@ -12773,6 +12814,10 @@ function onApplySubmit(ev) {
 function openReasonModal() {
   const modal = document.getElementById('reasonModal');
   const input = document.getElementById('reasonInput');
+  const closeBtn = document.getElementById('modalCloseBtn');
+  const submitBtn = document.getElementById('reasonSubmitBtn');
+  if (closeBtn) closeBtn.disabled = false;
+  if (submitBtn) setButtonLoading(submitBtn, false);
   if (input) input.value = '';
   if (modal) {
     modal.classList.remove('hidden');
@@ -12781,7 +12826,8 @@ function openReasonModal() {
   }
   setTimeout(() => input?.focus(), 100);
 }
-function closeReasonModal() {
+function closeReasonModal({ force = false } = {}) {
+  if (!force && leaveApplicationSubmitting) return;
   const modal = document.getElementById('reasonModal');
   if (modal) {
     modal.classList.add('hidden');
@@ -12852,7 +12898,7 @@ async function onChangePassSubmit(ev) {
 }
 async function onReasonSubmit(ev) {
   ev.preventDefault();
-  if (!pendingApply) return;
+  if (!pendingApply || leaveApplicationSubmitting) return;
   const reasonInput = document.getElementById('reasonInput');
   const reason = reasonInput.value.trim();
   if (!reason) {
@@ -12860,31 +12906,53 @@ async function onReasonSubmit(ev) {
     reasonInput.focus();
     return;
   }
-  const submitBtn = ev.submitter || document.querySelector('#reasonForm button[type="submit"]');
+  const submitBtn = ev.submitter || document.getElementById('reasonSubmitBtn');
+  const applyBtn = document.getElementById('leaveApplyBtn');
+  const closeBtn = document.getElementById('modalCloseBtn');
+  leaveApplicationSubmitting = true;
   setButtonLoading(submitBtn, true);
+  setButtonLoading(applyBtn, true);
+  if (closeBtn) closeBtn.disabled = true;
+  if (reasonInput) reasonInput.disabled = true;
+
   const payload = { ...pendingApply, reason };
+  const submittedSnapshot = { ...pendingApply, reason };
   try {
     const res = await apiFetch('/applications', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
     });
+    const data = await res.json().catch(() => ({}));
     if (res.ok) {
-      showToast('Leave applied successfully.', 'success');
+      const period = submittedSnapshot.from === submittedSnapshot.to
+        ? formatShortDate(submittedSnapshot.from)
+        : `${formatShortDate(submittedSnapshot.from)} – ${formatShortDate(submittedSnapshot.to)}`;
+      const successMessage = `Your ${capitalize(submittedSnapshot.type)} leave for ${period} was submitted and is pending approval.`;
+      pendingApply = null;
+      closeReasonModal({ force: true });
       document.getElementById('applyForm').reset();
-      closeReasonModal();
+      setLeaveApplySuccess(successMessage);
+      showToast(successMessage, 'success');
       await onEmployeeChange();
+      document.querySelector('.leave-portal__history')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else {
-      const data = await res.json().catch(() => ({}));
       const message = data.error || data.message || 'Error applying leave.';
       showToast(message, 'error');
+      setLeaveApplyError(message);
       updateLeaveApplyValidation();
     }
   } catch (err) {
     console.error(err);
-    showToast('Unable to apply for leave right now. Please try again.', 'error');
+    const message = 'Unable to apply for leave right now. Please try again.';
+    showToast(message, 'error');
+    setLeaveApplyError(message);
   } finally {
+    leaveApplicationSubmitting = false;
     setButtonLoading(submitBtn, false);
+    setButtonLoading(applyBtn, false);
+    if (closeBtn) closeBtn.disabled = false;
+    if (reasonInput) reasonInput.disabled = false;
   }
 }
 
@@ -12896,6 +12964,7 @@ function renderPreviousLeaves(apps, emp) {
     return;
   }
   const typeIcon = { annual: 'beach_access', casual: 'sunny', medical: 'medical_information' };
+  const viewEmployeeId = emp?.id;
   container.innerHTML = apps.sort((a, b) => new Date(b.from) - new Date(a.from)).map(app => {
     const days = calculateLeaveDays(app.from, app.to, app.halfDay);
     let typeLabel = capitalize(app.type) + ' leave';
@@ -12907,8 +12976,9 @@ function renderPreviousLeaves(apps, emp) {
     const period = app.from === app.to
       ? formatShortDate(app.from)
       : `${formatShortDate(app.from)} – ${formatShortDate(app.to)}`;
+    const showCancel = canCancelLeaveApplication(app, viewEmployeeId);
     return `
-      <article class="leave-history-item leave-history-item--${status}">
+      <article class="leave-history-item leave-history-item--${status}" data-leave-app-id="${app.id}">
         <div class="leave-history-item__icon" aria-hidden="true">
           <span class="material-symbols-rounded">${icon}</span>
         </div>
@@ -12919,6 +12989,14 @@ function renderPreviousLeaves(apps, emp) {
           </div>
           <p class="leave-history-item__dates">${escapeHtml(period)} · ${days} day${days === 1 ? '' : 's'}</p>
           ${app.reason ? `<p class="leave-history-item__reason">${escapeHtml(app.reason)}</p>` : ''}
+          ${showCancel ? `
+            <div class="leave-history-item__actions">
+              <button type="button" class="md-button md-button--outlined md-button--small" onclick="cancelApp(${app.id}, this)">
+                <span class="material-symbols-rounded">cancel</span>
+                Cancel request
+              </button>
+            </div>
+          ` : ''}
         </div>
       </article>
     `;
@@ -12945,6 +13023,73 @@ function calculateLeaveDays(from, to, halfDay) {
   return days;
 }
 
+function canCancelLeaveApplication(app, viewEmployeeId) {
+  const status = String(app?.status || '').toLowerCase();
+  if (['cancelled', 'rejected'].includes(status)) return false;
+  if (isManagerRole(currentUser)) {
+    if (status === 'pending') return true;
+    return new Date(app.to) >= new Date();
+  }
+  if (viewEmployeeId == null || String(app.employeeId) !== String(viewEmployeeId)) {
+    return false;
+  }
+  return new Date(app.from) > new Date();
+}
+
+function animateRemoveLeaveCard(element) {
+  if (!element || element.classList.contains('leave-card--removing')) {
+    return Promise.resolve();
+  }
+  return new Promise(resolve => {
+    element.classList.add('leave-card--removing');
+    const finish = () => {
+      if (element.isConnected) element.remove();
+      resolve();
+    };
+    element.addEventListener('transitionend', finish, { once: true });
+    window.setTimeout(finish, 320);
+  });
+}
+
+function ensureManagerPendingEmpty() {
+  const list = document.getElementById('managerAppsList');
+  if (!list || list.querySelector('[data-leave-app-id]')) return;
+  const emptyMessage = portalCompanyFilter && portalCompanyFilter !== 'all'
+    ? 'No pending leave applications for this department.'
+    : 'No pending leave applications.';
+  list.innerHTML = `<div class="text-muted" style="font-style:italic;">${emptyMessage}</div>`;
+}
+
+function ensureManagerUpcomingEmpty() {
+  const list = document.getElementById('managerUpcomingList');
+  if (!list || list.querySelector('[data-leave-app-id]')) return;
+  const emptyMessage = portalCompanyFilter && portalCompanyFilter !== 'all'
+    ? 'No upcoming approved leaves for this department.'
+    : 'No upcoming approved leaves in the next 1 month.';
+  list.innerHTML = `<div class="text-muted" style="font-style:italic;">${emptyMessage}</div>`;
+}
+
+function removeLeaveAppCardsFromManagerLists(appId) {
+  let touchedPending = false;
+  let touchedUpcoming = false;
+  document.querySelectorAll(`[data-leave-app-id="${appId}"]`).forEach(card => {
+    if (card.closest('#prevLeaves')) return;
+    if (card.closest('#managerAppsList')) touchedPending = true;
+    if (card.closest('#managerUpcomingList')) touchedUpcoming = true;
+    animateRemoveLeaveCard(card);
+  });
+  window.setTimeout(() => {
+    if (touchedPending) ensureManagerPendingEmpty();
+    if (touchedUpcoming) ensureManagerUpcomingEmpty();
+  }, 320);
+}
+
+async function syncLeavePortalAfterManagerAction({ approved = false } = {}) {
+  const tasks = [onEmployeeChange(), loadOnLeaveToday()];
+  if (approved) tasks.push(loadManagerUpcomingLeaves());
+  await Promise.all(tasks);
+}
+
 // ========== MANAGER LEAVE APPLICATIONS TAB LOGIC ==========
 
 async function loadManagerApplications() {
@@ -12969,9 +13114,9 @@ async function loadManagerApplications() {
       if (app.halfDay) {
         typeLabel += ` (Half Day${app.halfDayPeriod ? ' ' + app.halfDayPeriod : ''})`;
       }
-      const canCancel = isManagerRole(currentUser) || new Date(app.from) > new Date();
+      const canCancel = canCancelLeaveApplication(app, app.employeeId);
       return `
-        <article class="list-card">
+        <article class="list-card" data-leave-app-id="${app.id}">
           <div class="list-card__main">
             <div class="list-card__header">
               <span class="material-symbols-rounded">assignment_ind</span>
@@ -12991,7 +13136,7 @@ async function loadManagerApplications() {
               <span class="material-symbols-rounded">close</span>
               Reject
             </button>
-            ${canCancel ? `<button class="md-button md-button--outlined md-button--small" onclick="cancelApp(${app.id})"><span class="material-symbols-rounded">cancel_schedule_send</span>Cancel</button>` : ''}
+            ${canCancel ? `<button class="md-button md-button--outlined md-button--small" onclick="cancelApp(${app.id}, this)"><span class="material-symbols-rounded">cancel_schedule_send</span>Cancel</button>` : ''}
           </div>
         </article>
       `;
@@ -13090,10 +13235,10 @@ async function loadManagerUpcomingLeaves() {
     if (app.halfDay) {
       typeLabel += ` (Half Day${app.halfDayPeriod ? ' ' + app.halfDayPeriod : ''})`;
     }
-    const canCancel = isManagerRole(currentUser) && new Date(app.to) >= now;
+    const canCancel = canCancelLeaveApplication(app, app.employeeId);
     const icon = typeIcon[app.type] || 'event_available';
     return `
-      <article class="list-card">
+      <article class="list-card" data-leave-app-id="${app.id}">
         <div class="list-card__main">
           <div class="list-card__header">
             <span class="material-symbols-rounded">${icon}</span>
@@ -13108,7 +13253,7 @@ async function loadManagerUpcomingLeaves() {
           ${app.approverRemark ? `<div class="text-quiet">Remark: ${app.approverRemark}</div>` : ''}
           ${app.approvedAt ? `<div class="text-quiet">Approved At: ${app.approvedAt.substring(0,10)}</div>` : ''}
         </div>
-        ${canCancel ? `<div class="list-card__actions"><button class="md-button md-button--outlined md-button--small" onclick="cancelApp(${app.id})"><span class="material-symbols-rounded">cancel</span>Cancel</button></div>` : ''}
+        ${canCancel ? `<div class="list-card__actions"><button class="md-button md-button--outlined md-button--small" onclick="cancelApp(${app.id}, this)"><span class="material-symbols-rounded">cancel</span>Cancel</button></div>` : ''}
       </article>
     `;
   }).join('');
@@ -13139,8 +13284,10 @@ window.approveApp = async function(id, approve, buttonEl) {
 
     if (res.ok) {
       success = true;
-      showToast(approve ? 'Leave approved.' : 'Leave rejected.', 'success');
-      await loadManagerApplications();
+      const actionLabel = approve ? 'approved' : 'rejected';
+      showToast(`Leave ${actionLabel}.`, 'success');
+      removeLeaveAppCardsFromManagerLists(id);
+      void syncLeavePortalAfterManagerAction({ approved: approve });
     } else {
       const data = await res.json().catch(() => ({}));
       showToast(data.error || 'Error updating leave.', 'error');
@@ -13157,16 +13304,25 @@ window.approveApp = async function(id, approve, buttonEl) {
 };
 
 // Cancel leave — uses app dialog instead of browser confirm
-window.cancelApp = async function(appId) {
+window.cancelApp = async function(appId, buttonEl) {
+  const historyCard = document.querySelector(`#prevLeaves [data-leave-app-id="${appId}"]`);
+  const isPendingOnly = historyCard
+    && String(historyCard.querySelector('.leave-history-item__status')?.textContent || '').toLowerCase() === 'pending';
+  const confirmMessage = isPendingOnly
+    ? 'This will withdraw your pending leave request.'
+    : 'This will cancel the leave request. If it was already approved, the balance will be restored.';
+
   const confirmed = await showConfirmDialog({
     title: 'Cancel leave?',
-    message: 'This will cancel the leave request. If it was already approved, the balance will be restored.',
+    message: confirmMessage,
     confirmLabel: 'Cancel leave',
     cancelLabel: 'Keep leave',
     variant: 'danger',
     icon: 'event_busy'
   });
   if (!confirmed) return;
+
+  if (buttonEl instanceof HTMLElement) setButtonLoading(buttonEl, true);
 
   try {
     const res = await apiFetch(`/applications/${appId}/cancel`, {
@@ -13178,14 +13334,16 @@ window.cancelApp = async function(appId) {
     });
     if (res.ok) {
       showToast('Leave cancelled.', 'success');
-      await loadManagerApplications();
-      await onEmployeeChange();
+      removeLeaveAppCardsFromManagerLists(appId);
+      await syncLeavePortalAfterManagerAction({ approved: false });
     } else {
       const data = await res.json().catch(() => ({}));
       showToast(data.error || 'Failed to cancel leave.', 'error');
     }
   } catch (err) {
     showToast('Failed to cancel leave.', 'error');
+  } finally {
+    if (buttonEl instanceof HTMLElement) setButtonLoading(buttonEl, false);
   }
 };
 

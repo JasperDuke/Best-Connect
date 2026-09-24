@@ -1194,6 +1194,18 @@ body.emp-column-menu-open {
   line-height: 1.45;
 }
 
+.leave-apply-success {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  font-size: 13px;
+  color: #047857;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
 .leave-apply-form__actions {
   display: flex;
   justify-content: flex-end;
@@ -1368,6 +1380,38 @@ body.emp-column-menu-open {
   font-size: 13px;
   color: #94a3b8;
   font-style: italic;
+}
+
+.leave-history-item--cancelled .leave-history-item__icon {
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.leave-history-item--cancelled .leave-history-item__status {
+  color: #64748b;
+}
+
+.leave-history-item__actions {
+  margin-top: 8px;
+}
+
+.list-card.leave-card--removing,
+.leave-history-item.leave-card--removing {
+  opacity: 0;
+  transform: translateY(-8px);
+  max-height: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease,
+    max-height 0.28s ease,
+    margin 0.28s ease,
+    padding 0.28s ease;
 }
 
 .leave-reason-dialog {

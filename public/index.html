@@ -5960,6 +5960,7 @@
                 </div>
               </div>
               <div id="leaveApplyError" class="leave-apply-error hidden" role="alert"></div>
+              <div id="leaveApplySuccess" class="leave-apply-success hidden" role="status" aria-live="polite"></div>
               <div class="leave-apply-form__actions">
                 <button type="submit" id="leaveApplyBtn" class="md-button md-button--filled">
                   <span class="material-symbols-rounded">send</span>
@@ -6000,7 +6001,7 @@
               <textarea id="reasonInput" class="md-textarea" placeholder="e.g. Family event, medical appointment…" required rows="3"></textarea>
               <div class="leave-reason-form__actions">
                 <button type="button" id="modalCloseBtn" class="md-button md-button--text">Cancel</button>
-                <button type="submit" class="md-button md-button--filled">
+                <button type="submit" id="reasonSubmitBtn" class="md-button md-button--filled">
                   <span class="material-symbols-rounded">check</span>
                   Submit
                 </button>

@@ -6579,6 +6579,36 @@ init().then(async () => {
     return days;
   }
 
+  function normalizeLeaveDateOnly(value) {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      const trimmed = String(value).trim().slice(0, 10);
+      return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+    }
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  function leaveDateRangesOverlap(fromA, toA, fromB, toB) {
+    const startA = normalizeLeaveDateOnly(fromA);
+    const endA = normalizeLeaveDateOnly(toA);
+    const startB = normalizeLeaveDateOnly(fromB);
+    const endB = normalizeLeaveDateOnly(toB);
+    if (!startA || !endA || !startB || !endB) return false;
+    return startA <= endB && startB <= endA;
+  }
+
+  function findConflictingPendingLeave(applications, candidate) {
+    if (!candidate || candidate.employeeId === undefined || candidate.employeeId === null) {
+      return null;
+    }
+    return (applications || []).find(app => {
+      if (!app || String(app.status || '').toLowerCase() !== 'pending') return false;
+      if (app.employeeId != candidate.employeeId) return false;
+      return leaveDateRangesOverlap(app.from, app.to, candidate.from, candidate.to);
+    }) || null;
+  }
+
   function getLeaveDaysInRange(app, startDate, endDate) {
     if (!startDate && !endDate) return getLeaveDays(app);
     const from = new Date(app.from);
@@ -7029,8 +7059,9 @@ init().then(async () => {
       to,
       reason,
       halfDay,
-      halfDayType
+      halfDayType: halfDayTypeRaw
     } = payload || {};
+    const halfDayType = halfDayTypeRaw || payload?.halfDayPeriod || null;
 
     await db.read();
     db.data.applications = Array.isArray(db.data.applications)
@@ -7116,6 +7147,16 @@ init().then(async () => {
     });
     if (validationError) {
       return { status: 400, error: validationError };
+    }
+
+    const duplicatePending = findConflictingPendingLeave(db.data.applications, newApp);
+    if (duplicatePending) {
+      const fromLabel = normalizeLeaveDateOnly(duplicatePending.from) || duplicatePending.from;
+      const toLabel = normalizeLeaveDateOnly(duplicatePending.to) || duplicatePending.to;
+      return {
+        status: 409,
+        error: `You already have a pending leave request for ${fromLabel} to ${toLabel}. Wait for approval or cancel the existing request before submitting again.`
+      };
     }
 
     db.data.applications.push(newApp);
