@@ -13069,11 +13069,25 @@ function ensureManagerUpcomingEmpty() {
   list.innerHTML = `<div class="text-muted" style="font-style:italic;">${emptyMessage}</div>`;
 }
 
-function removeLeaveAppCardsFromManagerLists(appId) {
+function dismissLeaveManagerCards({ appId, buttonEl } = {}) {
+  const seen = new Set();
+  const candidates = [];
+  if (buttonEl instanceof HTMLElement) {
+    const directCard = buttonEl.closest('[data-leave-app-id]');
+    if (directCard && !directCard.closest('#prevLeaves')) {
+      candidates.push(directCard);
+    }
+  }
+  if (appId != null) {
+    document.querySelectorAll(`[data-leave-app-id="${appId}"]`).forEach(card => {
+      if (!card.closest('#prevLeaves')) candidates.push(card);
+    });
+  }
   let touchedPending = false;
   let touchedUpcoming = false;
-  document.querySelectorAll(`[data-leave-app-id="${appId}"]`).forEach(card => {
-    if (card.closest('#prevLeaves')) return;
+  candidates.forEach(card => {
+    if (seen.has(card)) return;
+    seen.add(card);
     if (card.closest('#managerAppsList')) touchedPending = true;
     if (card.closest('#managerUpcomingList')) touchedUpcoming = true;
     animateRemoveLeaveCard(card);
@@ -13082,6 +13096,16 @@ function removeLeaveAppCardsFromManagerLists(appId) {
     if (touchedPending) ensureManagerPendingEmpty();
     if (touchedUpcoming) ensureManagerUpcomingEmpty();
   }, 320);
+}
+
+function clearLeaveActionButtons(buttonEl, relatedButtons = []) {
+  if (buttonEl instanceof HTMLElement) setButtonLoading(buttonEl, false);
+  relatedButtons.forEach(btn => {
+    if (btn instanceof HTMLElement) {
+      setButtonLoading(btn, false);
+      btn.disabled = false;
+    }
+  });
 }
 
 async function syncLeavePortalAfterManagerAction({ approved = false } = {}) {
@@ -13286,7 +13310,8 @@ window.approveApp = async function(id, approve, buttonEl) {
       success = true;
       const actionLabel = approve ? 'approved' : 'rejected';
       showToast(`Leave ${actionLabel}.`, 'success');
-      removeLeaveAppCardsFromManagerLists(id);
+      clearLeaveActionButtons(buttonEl, relatedButtons);
+      dismissLeaveManagerCards({ appId: id, buttonEl });
       void syncLeavePortalAfterManagerAction({ approved: approve });
     } else {
       const data = await res.json().catch(() => ({}));
@@ -13296,10 +13321,7 @@ window.approveApp = async function(id, approve, buttonEl) {
     console.error(err);
     showToast('Unable to update leave at the moment. Please try again.', 'error');
   } finally {
-    if (!success) {
-      setButtonLoading(buttonEl, false);
-      relatedButtons.forEach(btn => (btn.disabled = false));
-    }
+    clearLeaveActionButtons(buttonEl, relatedButtons);
   }
 };
 
@@ -13322,7 +13344,14 @@ window.cancelApp = async function(appId, buttonEl) {
   });
   if (!confirmed) return;
 
-  if (buttonEl instanceof HTMLElement) setButtonLoading(buttonEl, true);
+  const relatedButtons = buttonEl instanceof HTMLElement
+    ? Array.from(buttonEl.closest('.list-card__actions')?.querySelectorAll('button') || []).filter(btn => btn !== buttonEl)
+    : [];
+
+  if (buttonEl instanceof HTMLElement) {
+    setButtonLoading(buttonEl, true);
+    relatedButtons.forEach(btn => (btn.disabled = true));
+  }
 
   try {
     const res = await apiFetch(`/applications/${appId}/cancel`, {
@@ -13334,8 +13363,9 @@ window.cancelApp = async function(appId, buttonEl) {
     });
     if (res.ok) {
       showToast('Leave cancelled.', 'success');
-      removeLeaveAppCardsFromManagerLists(appId);
-      await syncLeavePortalAfterManagerAction({ approved: false });
+      clearLeaveActionButtons(buttonEl, relatedButtons);
+      dismissLeaveManagerCards({ appId, buttonEl });
+      void syncLeavePortalAfterManagerAction({ approved: false });
     } else {
       const data = await res.json().catch(() => ({}));
       showToast(data.error || 'Failed to cancel leave.', 'error');
@@ -13343,7 +13373,7 @@ window.cancelApp = async function(appId, buttonEl) {
   } catch (err) {
     showToast('Failed to cancel leave.', 'error');
   } finally {
-    if (buttonEl instanceof HTMLElement) setButtonLoading(buttonEl, false);
+    clearLeaveActionButtons(buttonEl, relatedButtons);
   }
 };
 
