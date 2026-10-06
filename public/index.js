@@ -250,13 +250,19 @@ function renderEmployeeLeaveTracker(container, leaveBalances) {
           <span class="leave-tracker-card__remaining-label">Remaining</span>
           <span class="leave-tracker-card__remaining-value">${formatLeaveDayAmount(remaining)} <small>days</small></span>
         </div>
-        <dl class="leave-tracker-card__stats">
-          <div><dt>Monthly earning</dt><dd>${formatLeaveDayAmount(monthly)} / mo</dd></div>
-          <div><dt>Earned this cycle</dt><dd>${formatLeaveDayAmount(earned)} days</dd></div>
-          <div><dt>Deducted (taken)</dt><dd>${formatLeaveDayAmount(taken)} days</dd></div>
-          ${adjustment !== 0 ? `<div><dt>Adjustment</dt><dd>${formatLeaveDayAmount(adjustment)} days</dd></div>` : ''}
-          <div><dt>Yearly entitlement</dt><dd>${formatLeaveDayAmount(entitlement)} days</dd></div>
-        </dl>
+        <details class="leave-tracker-card__details">
+          <summary class="leave-tracker-card__toggle">
+            <span class="leave-tracker-card__toggle-label leave-tracker-card__toggle-label--show">View detail</span>
+            <span class="leave-tracker-card__toggle-label leave-tracker-card__toggle-label--hide">Hide detail</span>
+          </summary>
+          <dl class="leave-tracker-card__stats">
+            <div><dt>Monthly earning</dt><dd>${formatLeaveDayAmount(monthly)} / mo</dd></div>
+            <div><dt>Earned this cycle</dt><dd>${formatLeaveDayAmount(earned)} days</dd></div>
+            <div><dt>Deducted (taken)</dt><dd>${formatLeaveDayAmount(taken)} days</dd></div>
+            ${adjustment !== 0 ? `<div><dt>Adjustment</dt><dd>${formatLeaveDayAmount(adjustment)} days</dd></div>` : ''}
+            <div><dt>Yearly entitlement</dt><dd>${formatLeaveDayAmount(entitlement)} days</dd></div>
+          </dl>
+        </details>
       </article>
     `;
   }).join('');
@@ -14506,8 +14512,9 @@ function expandLeaveRowToCalendarDays(row, holidaySet) {
 function formatCalendarDurationMarkup(row, dayKind) {
   if (dayKind === 'half') {
     const period = getHalfDayPeriod(row);
-    const periodLabel = period || '½';
-    return `<span class="calendar-duration calendar-duration--half" title="Half day">${escapeHtml(periodLabel)}</span>`;
+    const periodLabel = period || 'Half';
+    const title = period ? `Half day (${period})` : 'Half day (AM/PM not recorded)';
+    return `<span class="calendar-duration calendar-duration--half" title="${escapeHtml(title)}">${escapeHtml(periodLabel)}</span>`;
   }
   return '<span class="calendar-duration calendar-duration--full" title="Full day">Full</span>';
 }

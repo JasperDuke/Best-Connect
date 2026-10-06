@@ -2267,6 +2267,47 @@ body.emp-column-menu-open {
   color: #64748b;
 }
 
+.leave-tracker-card__details {
+  margin: 0;
+}
+
+.leave-tracker-card__toggle {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.leave-tracker-card__toggle::marker,
+.leave-tracker-card__toggle::-webkit-details-marker {
+  display: none;
+}
+
+.leave-tracker-card__toggle:hover {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.leave-tracker-card__toggle-label--hide {
+  display: none;
+}
+
+.leave-tracker-card__details[open] .leave-tracker-card__toggle {
+  margin-bottom: 8px;
+}
+
+.leave-tracker-card__details[open] .leave-tracker-card__toggle-label--show {
+  display: none;
+}
+
+.leave-tracker-card__details[open] .leave-tracker-card__toggle-label--hide {
+  display: inline;
+}
+
 .leave-tracker-card__stats {
   margin: 0;
   display: grid;
