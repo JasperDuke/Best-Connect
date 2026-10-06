@@ -357,6 +357,7 @@ const MS_REDIRECT_URI = process.env.MS_REDIRECT_URI ||
   'http://localhost:3000/auth/microsoft/callback';
 // ---- EMAIL SETUP ----
 const EMAIL_SETTINGS_CACHE_MS = 60 * 1000;
+const EMAIL_SEND_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_OAUTH_SCOPE = 'https://outlook.office365.com/.default';
 const DEFAULT_LEAVE_EMAIL_TEMPLATES = {
   requestSubject: 'Leave request from {name}',
@@ -793,10 +794,25 @@ async function sendEmail(to, subject, text) {
         message.auth.expires = new Date(oauthTokenData.expiresAt);
       }
     }
-    await transporter.sendMail(message);
+    const sendPromise = transporter.sendMail(message);
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Email send timed out after ${EMAIL_SEND_TIMEOUT_MS}ms`)), EMAIL_SEND_TIMEOUT_MS);
+    });
+    await Promise.race([sendPromise, timeoutPromise]);
   } catch (err) {
     console.error('Failed to send email', err);
   }
+}
+
+function scheduleEmailTask(task) {
+  if (typeof task !== 'function') return;
+  void (async () => {
+    try {
+      await task();
+    } catch (err) {
+      console.error('Email notification task failed', err);
+    }
+  })();
 }
 
 function renderTemplate(template, variables = {}) {
@@ -1559,6 +1575,81 @@ async function sendRequestUpdateNotification(requestRecord, dbData = {}, options
     recipientEmail,
     renderTemplate(isClosed ? templates.requestClosedSubject : templates.requestUpdatedSubject, templateVars),
     renderTemplate(isClosed ? templates.requestClosedBody : templates.requestUpdatedBody, templateVars)
+  );
+}
+
+async function sendNewLeaveRequestEmail({
+  employee,
+  employeeId,
+  normalizedType,
+  normalizedFrom,
+  normalizedTo,
+  dbSnapshot = {}
+}) {
+  const emailConfig = await loadEmailSettings();
+  const recipientSet = new Set();
+  const addRecipients = list => {
+    (list || []).forEach(value => {
+      if (!value) return;
+      const email = typeof value === 'string' ? value : value?.email;
+      if (!email) return;
+      const normalized = email.toString().trim().toLowerCase();
+      if (normalized) {
+        recipientSet.add(normalized);
+      }
+    });
+  };
+
+  const managerRecipients = resolveEmployeeManagers(employee, dbSnapshot);
+  addRecipients(managerRecipients.map(manager => manager?.email));
+  addRecipients(emailConfig?.recipients);
+
+  if (!recipientSet.size) {
+    const managers = (dbSnapshot.users || []).filter(u => isManagerRole(u?.role));
+    addRecipients(managers.map(m => m.email));
+  }
+
+  const empEmail = getEmpEmail(employee);
+  const name = employee?.name || empEmail || `Employee ${employeeId}`;
+
+  if (!recipientSet.size && ADMIN_EMAIL) {
+    recipientSet.add(ADMIN_EMAIL.toLowerCase());
+  }
+
+  const recipientEmails = Array.from(recipientSet.values());
+  if (!recipientEmails.length) return;
+
+  const templates = emailConfig?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
+  const templateVars = {
+    name,
+    type: normalizedType,
+    from: normalizedFrom,
+    to: normalizedTo
+  };
+  await sendEmail(
+    recipientEmails,
+    renderTemplate(templates.requestSubject, templateVars),
+    renderTemplate(templates.requestBody, templateVars)
+  );
+}
+
+async function sendLeaveDecisionEmail(app, employee, templateKeys, options = {}) {
+  const email = getEmpEmail(employee);
+  const name = employee?.name || email || `Employee ${app.employeeId}`;
+  if (!email) return;
+  const templates = (await loadEmailSettings())?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
+  const managerNote = options.managerNote ?? app.approverRemark ?? '';
+  const templateVars = {
+    name,
+    type: app.type,
+    from: app.from,
+    to: app.to,
+    managerNote
+  };
+  await sendEmail(
+    email,
+    renderTemplate(templates[templateKeys.subject], templateVars),
+    renderTemplate(templates[templateKeys.body], templateVars)
   );
 }
 
@@ -2679,8 +2770,8 @@ function upsertUserForEmployee(emp) {
   const role = getEmpRole(emp);
   if (existing) {
     let changed = false;
-    if (existing.email !== email) {
-      existing.email = email;
+    if (existing.email !== normalizedEmail) {
+      existing.email = normalizedEmail;
       changed = true;
     }
     if (existing.employeeId !== emp.id) {
@@ -2700,7 +2791,7 @@ function upsertUserForEmployee(emp) {
 
   db.data.users.push({
     id: emp.id,
-    email,
+    email: normalizedEmail,
     password: DEFAULT_USER_PASSWORD,
     role,
     employeeId: emp.id
@@ -3711,7 +3802,12 @@ init().then(async () => {
   app.post('/login', async (req, res) => {
     await db.read();
     const { email, password } = req.body;
-    const user = db.data.users?.find(u => u.email === email && u.password === password);
+    const loginEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    const loginPassword = typeof password === 'string' ? password : '';
+    const user = db.data.users?.find(u => {
+      if (!u || !u.email || u.password !== loginPassword) return false;
+      return String(u.email).trim().toLowerCase() === loginEmail;
+    });
 
     let userObj;
     if (user) {
@@ -3726,7 +3822,10 @@ init().then(async () => {
         role: user.role,
         employeeId: user.employeeId
       };
-    } else if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+    } else if (
+      loginEmail === String(ADMIN_EMAIL || '').trim().toLowerCase()
+      && loginPassword === ADMIN_PASSWORD
+    ) {
       userObj = {
         id: 'admin',
         email: ADMIN_EMAIL,
@@ -4346,6 +4445,56 @@ init().then(async () => {
     res.json(emp);
   });
 
+  app.post('/employees/:id/reset-password', authRequired, managerOnly, async (req, res) => {
+    await db.read();
+    const emp = db.data.employees.find(e => e.id == req.params.id);
+    if (!emp) {
+      return res.status(404).json({ error: 'Employee not found.' });
+    }
+
+    normalizeEmployeeEmail(emp);
+    const email = (getEmpEmail(emp) || '').trim();
+    if (!email) {
+      return res.status(400).json({
+        error: 'Employee must have a work email before login can be reset.'
+      });
+    }
+
+    const emailLower = email.toLowerCase();
+    const hadLoginAccount = (db.data.users || []).some(
+      u => u && (u.employeeId == emp.id || (u.email && String(u.email).trim().toLowerCase() === emailLower))
+    );
+
+    let newPassword = typeof req.body?.password === 'string' ? req.body.password.trim() : '';
+    if (!newPassword) {
+      newPassword = DEFAULT_USER_PASSWORD;
+    }
+    if (newPassword.length < 4) {
+      return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+    }
+
+    upsertUserForEmployee(emp);
+    const user = (db.data.users || []).find(
+      u => u && (u.employeeId == emp.id || (u.email && String(u.email).trim().toLowerCase() === emailLower))
+    );
+    if (!user) {
+      return res.status(500).json({ error: 'Unable to create or update login account.' });
+    }
+
+    user.email = emailLower;
+    user.employeeId = emp.id;
+    user.role = getEmpRole(emp);
+    user.password = newPassword;
+    await db.write();
+
+    res.json({
+      success: true,
+      email: user.email,
+      accountCreated: !hadLoginAccount,
+      usedDefaultPassword: !req.body?.password
+    });
+  });
+
   app.post('/employees/:id/leave-adjustments', authRequired, managerOnly, async (req, res) => {
     await db.read();
     const emp = db.data.employees.find(e => e.id == req.params.id);
@@ -4918,12 +5067,12 @@ init().then(async () => {
     candidate.updatedAt = new Date().toISOString();
     await db.write();
     const { cv, comments = [], ...rest } = candidate;
-    await sendRecruitmentRejectionEmail({
+    scheduleEmailTask(() => sendRecruitmentRejectionEmail({
       candidate,
       previousStatus,
       recruitmentApplications: db.data.recruitmentApplications || [],
       positions: db.data.positions || []
-    });
+    }));
     res.json({
       ...rest,
       commentCount: comments.length,
@@ -4957,12 +5106,12 @@ init().then(async () => {
     candidate.updatedAt = new Date().toISOString();
     await db.write();
     const { cv, comments = [], ...rest } = candidate;
-    await sendRecruitmentRejectionEmail({
+    scheduleEmailTask(() => sendRecruitmentRejectionEmail({
       candidate,
       previousStatus,
       recruitmentApplications: db.data.recruitmentApplications || [],
       positions: db.data.positions || []
-    });
+    }));
     res.json({
       ...rest,
       commentCount: comments.length,
@@ -6431,31 +6580,76 @@ init().then(async () => {
     return { startDate: cycle.start, endDate: cycle.end };
   }
 
+  function resolveLeaveReportRange(query = {}, settings = {}) {
+    const activeRange = getActiveLeaveReportRange(settings);
+    const startDate = query.start ? new Date(query.start) : activeRange.startDate;
+    const endDate = query.end ? new Date(query.end) : activeRange.endDate;
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      return { error: 'Invalid start or end date.' };
+    }
+    return { startDate, endDate, activeRange };
+  }
+
+  function leaveApplicationMatchesStatus(app, statusParam) {
+    const raw = typeof statusParam === 'string' ? statusParam.trim().toLowerCase() : 'approved';
+    if (!raw || raw === 'approved') {
+      return String(app?.status || '').toLowerCase() === 'approved';
+    }
+    if (raw === 'all') return true;
+    const allowed = raw.split(',').map(s => s.trim()).filter(Boolean);
+    if (!allowed.length) {
+      return String(app?.status || '').toLowerCase() === 'approved';
+    }
+    return allowed.includes(String(app?.status || '').toLowerCase());
+  }
+
+  function leaveApplicationOverlapsRange(app, startDate, endDate) {
+    const from = new Date(app.from);
+    const to = new Date(app.to);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return false;
+    if (startDate && to < startDate) return false;
+    if (endDate && from > endDate) return false;
+    return true;
+  }
+
+  function getEmployeeReportLocation(emp) {
+    return emp?.['Country / City'] || emp?.location || emp?.['country/city'] || '';
+  }
+
+  function getHalfDayPeriodValue(app) {
+    const value = app?.halfDayPeriod || app?.halfDayType;
+    return value ? String(value).trim() : '';
+  }
+
   // ---- LEAVE REPORT ----
+  app.get('/leave-report/cycle', authRequired, managerOnly, async (req, res) => {
+    await db.read();
+    const { startDate, endDate } = getActiveLeaveReportRange(db.data.settings || {});
+    res.json({
+      start: startDate.toISOString().slice(0, 10),
+      end: endDate.toISOString().slice(0, 10)
+    });
+  });
+
   app.get('/leave-report', authRequired, managerOnly, async (req, res) => {
     await db.read();
-    const { start, end } = req.query;
-    const activeRange = getActiveLeaveReportRange(db.data.settings || {});
-    const startDate = start ? new Date(start) : activeRange.startDate;
-    const endDate = end ? new Date(end) : activeRange.endDate;
+    const range = resolveLeaveReportRange(req.query, db.data.settings || {});
+    if (range.error) {
+      return res.status(400).json({ error: range.error });
+    }
+    const { startDate, endDate } = range;
+    const includeZero = String(req.query.includeZero || '').toLowerCase() === 'true';
+    const statusParam = req.query.status || 'approved';
     const emps = db.data.employees || [];
     const apps = db.data.applications || [];
 
     const report = emps.map(emp => {
-      let empApps = apps.filter(a => a.employeeId == emp.id && a.status === 'approved');
-      if (startDate || endDate) {
-        empApps = empApps.filter(a => {
-          const from = new Date(a.from);
-          const to = new Date(a.to);
-          if (startDate && to < startDate) return false;
-          if (endDate && from > endDate) return false;
-          return true;
-        });
-      }
+      let empApps = apps.filter(a => a.employeeId == emp.id && leaveApplicationMatchesStatus(a, statusParam));
+      empApps = empApps.filter(a => leaveApplicationOverlapsRange(a, startDate, endDate));
       const totals = {};
       let totalDays = 0;
       empApps.forEach(a => {
-        const days = startDate || endDate ? getLeaveDaysInRange(a, startDate, endDate) : getLeaveDays(a);
+        const days = getLeaveDaysInRange(a, startDate, endDate);
         if (days <= 0) return;
         totals[a.type] = (totals[a.type] || 0) + days;
         totalDays += days;
@@ -6464,28 +6658,93 @@ init().then(async () => {
         id: emp.id,
         name: emp.name || '',
         title: emp.Title || emp.title || '',
-        location: emp['Country / City'] || emp.location || emp['country/city'] || '',
+        location: getEmployeeReportLocation(emp),
         totalDays,
         leaves: totals
       };
-    }).filter(r => r.totalDays > 0);
+    }).filter(r => includeZero || r.totalDays > 0);
 
-    report.sort((a, b) => b.totalDays - a.totalDays);
-    res.json(report);
+    report.sort((a, b) => b.totalDays - a.totalDays || a.name.localeCompare(b.name));
+    res.json({
+      range: {
+        start: startDate.toISOString().slice(0, 10),
+        end: endDate.toISOString().slice(0, 10)
+      },
+      rows: report
+    });
+  });
+
+  app.get('/leave-report/applications', authRequired, managerOnly, async (req, res) => {
+    await db.read();
+    const range = resolveLeaveReportRange(req.query, db.data.settings || {});
+    if (range.error) {
+      return res.status(400).json({ error: range.error });
+    }
+    const { startDate, endDate } = range;
+    const statusParam = req.query.status || 'approved';
+    const employeeId = req.query.employeeId;
+    const emps = db.data.employees || [];
+    const employeesById = new Map(emps.map(emp => [String(emp.id), emp]));
+    const apps = (db.data.applications || []).filter(app => {
+      if (!app) return false;
+      if (employeeId != null && String(app.employeeId) !== String(employeeId)) return false;
+      if (!leaveApplicationMatchesStatus(app, statusParam)) return false;
+      return leaveApplicationOverlapsRange(app, startDate, endDate);
+    });
+
+    const rows = apps.map(app => {
+      const emp = employeesById.get(String(app.employeeId)) || {};
+      const days = getLeaveDaysInRange(app, startDate, endDate);
+      const period = getHalfDayPeriodValue(app);
+      return {
+        id: app.id,
+        employeeId: app.employeeId,
+        employeeName: emp.name || '',
+        title: emp.Title || emp.title || '',
+        location: getEmployeeReportLocation(emp),
+        type: app.type,
+        from: normalizeLeaveDateOnly(app.from) || app.from,
+        to: normalizeLeaveDateOnly(app.to) || app.to,
+        days,
+        status: app.status || 'pending',
+        halfDay: Boolean(app.halfDay),
+        halfDayPeriod: period || null,
+        halfDayType: period || null,
+        reason: app.reason || '',
+        approvedBy: app.approvedBy || null,
+        approvedAt: app.approvedAt || null,
+        createdAt: app.createdAt || null
+      };
+    }).filter(row => row.days > 0);
+
+    rows.sort((a, b) => {
+      const fromDiff = new Date(b.from) - new Date(a.from);
+      if (fromDiff !== 0) return fromDiff;
+      return String(a.employeeName).localeCompare(String(b.employeeName));
+    });
+
+    res.json({
+      range: {
+        start: startDate.toISOString().slice(0, 10),
+        end: endDate.toISOString().slice(0, 10)
+      },
+      rows
+    });
   });
 
   // ---- LEAVE REPORT CSV EXPORT ----
   app.get('/leave-report/export', authRequired, managerOnly, async (req, res) => {
     await db.read();
     const emps = db.data.employees || [];
-    const activeRange = getActiveLeaveReportRange(db.data.settings || {});
+    const range = resolveLeaveReportRange(req.query, db.data.settings || {});
+    if (range.error) {
+      return res.status(400).json({ error: range.error });
+    }
+    const activeRange = { startDate: range.startDate, endDate: range.endDate };
+    const statusParam = req.query.status || 'approved';
     const apps = (db.data.applications || []).filter(a => {
-      if (!a || a.status !== 'approved') return false;
-      const from = new Date(a.from);
-      const to = new Date(a.to);
-      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return false;
-      if (to < activeRange.startDate || from > activeRange.endDate) return false;
-      return true;
+      if (!a || !leaveApplicationMatchesStatus(a, statusParam)) return false;
+      return leaveApplicationOverlapsRange(a, activeRange.startDate, activeRange.endDate);
     });
 
     function escapeCsv(value) {
@@ -6505,7 +6764,7 @@ init().then(async () => {
       if (app.halfDay) {
         if (appStart < activeRange.startDate || appStart > activeRange.endDate) continue;
         const dateStr = appStart.toISOString().split('T')[0];
-        const period = app.halfDayType || app.halfDayPeriod || '';
+        const period = getHalfDayPeriodValue(app);
         const type = `${app.type} (Half Day${period ? ' ' + period : ''})`;
         rows.push({ name, date: dateStr, type });
       } else {
@@ -6795,7 +7054,12 @@ init().then(async () => {
       employee.fullTimeEndDate = fullTimeEnd;
     }
 
-    const derivedEnd = fullTimeEnd || (!fullTimeStart && internshipEnd ? internshipEnd : null);
+    const employeeInactive = ['inactive', 'deactivated', 'disabled'].includes(
+      String(employee?.status || '').trim().toLowerCase()
+    );
+    const derivedEnd = fullTimeEnd || (
+      !fullTimeStart && internshipEnd && employeeInactive ? internshipEnd : null
+    );
     if (!employee.endDate && derivedEnd) {
       employee.endDate = derivedEnd;
     } else if (employee.endDate) {
@@ -7039,7 +7303,8 @@ init().then(async () => {
       status: app.status,
       reason: app.reason || '',
       halfDay: Boolean(app.halfDay),
-      halfDayType: app.halfDayType || null,
+      halfDayType: getHalfDayPeriodValue(app) || null,
+      halfDayPeriod: getHalfDayPeriodValue(app) || null,
       days: getLeaveDays(app)
     };
 
@@ -7137,6 +7402,7 @@ init().then(async () => {
       newApp.halfDay = true;
       if (halfDayType) {
         newApp.halfDayType = halfDayType;
+        newApp.halfDayPeriod = halfDayType;
       }
     }
 
@@ -7162,51 +7428,17 @@ init().then(async () => {
     db.data.applications.push(newApp);
     await db.write();
 
-    const emailConfig = await loadEmailSettings();
-    const recipientSet = new Set();
-    const addRecipients = list => {
-      (list || []).forEach(value => {
-        if (!value) return;
-        const email = typeof value === 'string' ? value : value?.email;
-        if (!email) return;
-        const normalized = email.toString().trim().toLowerCase();
-        if (normalized) {
-          recipientSet.add(normalized);
-        }
-      });
-    };
-
-    const managerRecipients = resolveEmployeeManagers(employee, db.data);
-    addRecipients(managerRecipients.map(manager => manager?.email));
-    addRecipients(emailConfig?.recipients);
-
-    if (!recipientSet.size) {
-      const managers = db.data.users.filter(u => isManagerRole(u?.role));
-      addRecipients(managers.map(m => m.email));
-    }
-
-    const empEmail = getEmpEmail(employee);
-    const name = employee?.name || empEmail || `Employee ${employeeId}`;
-
-    if (!recipientSet.size && ADMIN_EMAIL) {
-      recipientSet.add(ADMIN_EMAIL.toLowerCase());
-    }
-
-    const recipientEmails = Array.from(recipientSet.values());
-    if (recipientEmails.length) {
-      const templates = emailConfig?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
-      const templateVars = {
-        name,
-        type: normalizedType,
-        from: normalizedFrom,
-        to: normalizedTo
-      };
-      void sendEmail(
-        recipientEmails,
-        renderTemplate(templates.requestSubject, templateVars),
-        renderTemplate(templates.requestBody, templateVars)
-      );
-    }
+    scheduleEmailTask(() => sendNewLeaveRequestEmail({
+      employee,
+      employeeId,
+      normalizedType,
+      normalizedFrom,
+      normalizedTo,
+      dbSnapshot: {
+        users: db.data.users,
+        employees: db.data.employees
+      }
+    }));
 
     return { status: 201, application: newApp };
   }
@@ -7678,7 +7910,7 @@ init().then(async () => {
     db.data.requests.push(requestRecord);
     await db.write();
 
-    await sendRequestCreatedNotification(requestRecord, db.data);
+    scheduleEmailTask(() => sendRequestCreatedNotification(requestRecord, db.data));
 
     return res.status(201).json(toRequestResponse(requestRecord));
   });
@@ -7909,7 +8141,7 @@ init().then(async () => {
     });
 
     await db.write();
-    await sendRequestUpdateNotification(requestRecord, db.data);
+    scheduleEmailTask(() => sendRequestUpdateNotification(requestRecord, db.data));
     return res.json(toRequestResponse(requestRecord));
   });
 
@@ -7990,7 +8222,7 @@ init().then(async () => {
     }
 
     await db.write();
-    await sendRequestUpdateNotification(requestRecord, db.data, { managerNote: message });
+    scheduleEmailTask(() => sendRequestUpdateNotification(requestRecord, db.data, { managerNote: message }));
     return res.json(toRequestResponse(requestRecord));
   });
 
@@ -8769,24 +9001,10 @@ init().then(async () => {
     const approvedApp = db.data.applications[appIdx];
     res.json(approvedApp);
 
-    const email = getEmpEmail(employee);
-    const name = employee?.name || email || `Employee ${approvedApp.employeeId}`;
-    if (email) {
-      void (async () => {
-        const templates = (await loadEmailSettings())?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
-        const templateVars = {
-          name,
-          type: approvedApp.type,
-          from: approvedApp.from,
-          to: approvedApp.to
-        };
-        await sendEmail(
-          email,
-          renderTemplate(templates.approveSubject, templateVars),
-          renderTemplate(templates.approveBody, templateVars)
-        );
-      })();
-    }
+    scheduleEmailTask(() => sendLeaveDecisionEmail(approvedApp, employee, {
+      subject: 'approveSubject',
+      body: 'approveBody'
+    }));
   });
 
   // ---- REJECT LEAVE ----
@@ -8813,21 +9031,12 @@ init().then(async () => {
     res.json(rejectedApp);
 
     const emp = db.data.employees.find(e => e.id == app.employeeId);
-    const email = getEmpEmail(emp);
-    const name = emp?.name || email || `Employee ${app.employeeId}`;
-    if (email) {
-      const managerNote = remark?.toString().trim()
-        || 'Please reply if you’d like to discuss alternative dates or have questions.';
-      void (async () => {
-        const templates = (await loadEmailSettings())?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
-        const templateVars = { name, type: app.type, from: app.from, to: app.to, managerNote };
-        await sendEmail(
-          email,
-          renderTemplate(templates.rejectSubject, templateVars),
-          renderTemplate(templates.rejectBody, templateVars)
-        );
-      })();
-    }
+    const managerNote = remark?.toString().trim()
+      || 'Please reply if you’d like to discuss alternative dates or have questions.';
+    scheduleEmailTask(() => sendLeaveDecisionEmail(rejectedApp, emp, {
+      subject: 'rejectSubject',
+      body: 'rejectBody'
+    }, { managerNote }));
   });
 
   // ---- CANCEL LEAVE ----
@@ -8863,24 +9072,10 @@ init().then(async () => {
     res.json(cancelledApp);
 
     const emp = db.data.employees.find(e => e.id == appObjApp.employeeId);
-    const email = getEmpEmail(emp);
-    const name = emp?.name || email || `Employee ${appObjApp.employeeId}`;
-    if (email) {
-      void (async () => {
-        const templates = (await loadEmailSettings())?.templates || DEFAULT_LEAVE_EMAIL_TEMPLATES;
-        const templateVars = {
-          name,
-          type: appObjApp.type,
-          from: appObjApp.from,
-          to: appObjApp.to
-        };
-        await sendEmail(
-          email,
-          renderTemplate(templates.cancelSubject, templateVars),
-          renderTemplate(templates.cancelBody, templateVars)
-        );
-      })();
-    }
+    scheduleEmailTask(() => sendLeaveDecisionEmail(cancelledApp, emp, {
+      subject: 'cancelSubject',
+      body: 'cancelBody'
+    }));
   });
 
   // (Legacy/optional: PATCH by status field)

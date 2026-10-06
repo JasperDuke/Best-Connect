@@ -1414,6 +1414,17 @@ body.emp-column-menu-open {
     padding 0.28s ease;
 }
 
+.admin-reset-password-employee {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.5;
+}
+
 .leave-reason-dialog {
   text-align: left;
   max-width: 420px;
@@ -2064,4 +2075,51 @@ body.emp-column-menu-open {
 .change-pass-form .app-dialog__actions {
   margin-top: 4px;
   justify-content: flex-end;
+}
+
+.leave-report-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 1rem;
+}
+
+.leave-report-toolbar__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+}
+
+.leave-report-toolbar__field {
+  min-width: 10rem;
+  margin: 0;
+}
+
+.leave-report-toolbar__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-muted, #64748b);
+  padding-bottom: 4px;
+}
+
+.leave-report-toolbar__actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.leave-report-toolbar__hint {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.chip--half-day {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }

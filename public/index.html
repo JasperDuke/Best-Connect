@@ -7326,14 +7326,52 @@
           <p class="panel-subtitle">Export snapshots, explore calendar activity, and track leave totals.</p>
         </div>
 
-        <div class="list-card__actions" style="justify-content:flex-start;">
-          <button id="exportLeavesBtn" class="md-button md-button--outlined">
-            <span class="material-symbols-rounded">file_download</span>
-            Export Leaves
-          </button>
+        <div class="leave-report-toolbar md-card">
+          <p id="leaveReportCycleLabel" class="leave-report-toolbar__cycle text-muted"></p>
+          <div class="leave-report-toolbar__filters">
+            <div class="md-field leave-report-toolbar__field">
+              <label class="md-label" for="leaveReportStart">From</label>
+              <input type="date" id="leaveReportStart" class="md-input" />
+            </div>
+            <div class="md-field leave-report-toolbar__field">
+              <label class="md-label" for="leaveReportEnd">To</label>
+              <input type="date" id="leaveReportEnd" class="md-input" />
+            </div>
+            <div class="md-field leave-report-toolbar__field">
+              <label class="md-label" for="leaveReportStatus">Status</label>
+              <select id="leaveReportStatus" class="md-input">
+                <option value="approved">Approved</option>
+                <option value="pending">Pending</option>
+                <option value="all">All statuses</option>
+              </select>
+            </div>
+            <label class="leave-report-toolbar__checkbox">
+              <input type="checkbox" id="leaveReportIncludeZero" />
+              Show employees with zero leave
+            </label>
+          </div>
+          <div class="leave-report-toolbar__actions list-card__actions">
+            <button type="button" id="leaveReportUseCycleBtn" class="md-button md-button--text md-button--small">
+              <span class="material-symbols-rounded">date_range</span>
+              Use current cycle
+            </button>
+            <button type="button" id="leaveReportApplyBtn" class="md-button md-button--filled md-button--small">
+              <span class="material-symbols-rounded">filter_alt</span>
+              Apply filters
+            </button>
+            <button id="exportLeavesBtn" class="md-button md-button--outlined md-button--small">
+              <span class="material-symbols-rounded">file_download</span>
+              Export CSV
+            </button>
+          </div>
+          <p id="leaveReportRangeHint" class="leave-report-toolbar__hint text-muted"></p>
         </div>
 
         <div class="md-card" style="overflow-x:auto;">
+          <div class="card-title">
+            <span class="material-symbols-rounded">groups</span>
+            Totals by employee
+          </div>
           <table id="leaveReportTable" class="data-table">
             <thead>
               <tr>
@@ -7345,6 +7383,27 @@
               </tr>
             </thead>
             <tbody id="leaveReportBody"></tbody>
+          </table>
+        </div>
+
+        <div class="md-card" style="overflow-x:auto; margin-top: 1rem;">
+          <div class="card-title">
+            <span class="material-symbols-rounded">event_note</span>
+            Leave detail (who took leave and when)
+          </div>
+          <table id="leaveReportDetailTable" class="data-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Type</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Days</th>
+                <th>AM/PM</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="leaveReportDetailBody"></tbody>
           </table>
         </div>
 
@@ -8366,6 +8425,35 @@
           Save photo
         </button>
       </div>
+    </div>
+  </div>
+
+  <div id="adminResetPasswordModal" class="app-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="adminResetPasswordTitle" aria-hidden="true">
+    <div class="app-dialog__backdrop" data-admin-reset-pass-dismiss></div>
+    <div class="app-dialog__panel change-pass-dialog" role="document">
+      <div class="app-dialog__icon app-dialog__icon--default" aria-hidden="true">
+        <span class="material-symbols-rounded">lock_reset</span>
+      </div>
+      <h2 id="adminResetPasswordTitle" class="app-dialog__title">Reset employee login</h2>
+      <p id="adminResetPasswordSubtitle" class="app-dialog__message">Set a new portal password for this employee. If no login exists yet, one will be created automatically.</p>
+      <p id="adminResetPasswordEmployee" class="admin-reset-password-employee"></p>
+      <form id="adminResetPasswordForm" class="change-pass-form">
+        <div class="md-field">
+          <label class="md-label" for="adminResetPasswordInput">New password</label>
+          <div class="md-input-wrapper">
+            <span class="material-symbols-rounded">password</span>
+            <input type="password" id="adminResetPasswordInput" class="md-input" autocomplete="new-password" placeholder="Leave blank for system default">
+          </div>
+          <p class="settings-form__help">Employee signs in with their <strong>work email</strong> and this password. Blank uses the default from server config (<code>DEFAULT_USER_PASSWORD</code>).</p>
+        </div>
+        <div class="app-dialog__actions">
+          <button type="button" id="adminResetPasswordCancel" class="md-button md-button--text app-dialog__btn-cancel">Cancel</button>
+          <button type="submit" id="adminResetPasswordSubmit" class="md-button md-button--filled app-dialog__btn-confirm">
+            <span class="material-symbols-rounded">save</span>
+            Save password
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 

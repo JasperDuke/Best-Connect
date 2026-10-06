@@ -18,6 +18,7 @@ Module._load = function loadWithMongoStub(request, parent, isMain) {
 const {
   buildEmployeeLeaveState,
   getCurrentCycleRange,
+  getLeaveCycleSettings,
   normalizeLeaveBalanceEntry,
   roundToOneDecimal,
   DEFAULT_LEAVE_BALANCES,
@@ -108,6 +109,87 @@ test('Mid-cycle joining prorates from the actual start date', () => {
   assert.equal(balances.annual.balance, roundToOneDecimal((10 / 12) * proratedMonths));
   assert.equal(balances.casual.balance, roundToOneDecimal((5 / 12) * proratedMonths));
   assert.equal(balances.medical.balance, roundToOneDecimal((14 / 12) * proratedMonths));
+});
+
+test('Active employee continues accrual after internship end when full-time start is missing', () => {
+  const asOfDate = new Date('2026-10-15');
+  const employee = {
+    id: 42,
+    status: 'active',
+    internshipStartDate: new Date('2026-05-01'),
+    internshipEndDate: new Date('2026-08-31')
+  };
+  const settings = getLeaveCycleSettings({
+    leaveCycle: {
+      durationMonths: 6,
+      activeCycleStart: '2026-06-01',
+      activeCycleEnd: '2026-12-31'
+    }
+  });
+  const cycleRange = getCurrentCycleRange(asOfDate, settings);
+  const { balances } = buildEmployeeLeaveState(employee, [], {
+    asOfDate,
+    cycleRange,
+    holidays: [],
+    settings
+  });
+
+  assert(balances.annual.balance >= 3.5);
+  assert(balances.annual.balance <= 4.2);
+});
+
+test('Active employee with derived endDate from internship still accrues after internship', () => {
+  const asOfDate = new Date('2026-10-15');
+  const employee = {
+    id: 44,
+    status: 'active',
+    internshipStartDate: new Date('2026-05-01'),
+    internshipEndDate: new Date('2026-08-31'),
+    endDate: new Date('2026-08-31')
+  };
+  const settings = getLeaveCycleSettings({
+    leaveCycle: {
+      durationMonths: 6,
+      activeCycleStart: '2026-06-01',
+      activeCycleEnd: '2026-12-31'
+    }
+  });
+  const cycleRange = getCurrentCycleRange(asOfDate, settings);
+  const { balances } = buildEmployeeLeaveState(employee, [], {
+    asOfDate,
+    cycleRange,
+    holidays: [],
+    settings
+  });
+
+  assert(balances.annual.balance >= 3.5);
+  assert(balances.annual.balance <= 4.2);
+});
+
+test('Inactive employee stops accrual at internship end without full-time start', () => {
+  const asOfDate = new Date('2026-10-15');
+  const employee = {
+    id: 43,
+    status: 'inactive',
+    internshipStartDate: new Date('2026-05-01'),
+    internshipEndDate: new Date('2026-08-31')
+  };
+  const settings = getLeaveCycleSettings({
+    leaveCycle: {
+      durationMonths: 6,
+      activeCycleStart: '2026-06-01',
+      activeCycleEnd: '2026-12-31'
+    }
+  });
+  const cycleRange = getCurrentCycleRange(asOfDate, settings);
+  const { balances } = buildEmployeeLeaveState(employee, [], {
+    asOfDate,
+    cycleRange,
+    holidays: [],
+    settings
+  });
+
+  assert.equal(balances.annual.balance, 2.5);
 });
 
 test('Mid-cycle departure stops accrual after exit month', () => {

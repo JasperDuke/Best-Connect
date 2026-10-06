@@ -9129,6 +9129,10 @@ function initCompanyUnitsSettings() {
       if (managerFilter) managerFilter.value = portalCompanyFilter;
       await loadEmployeesPortal();
       await loadManagerApplications();
+      const reportPanel = document.getElementById('leaveReportPanel');
+      if (reportPanel && !reportPanel.classList.contains('hidden')) {
+        await loadLeaveReport();
+      }
       const empSel = document.getElementById('employeeSelect');
       if (empSel?.value) empSel.dispatchEvent(new Event('change'));
     });
@@ -9142,6 +9146,10 @@ function initCompanyUnitsSettings() {
       if (portalFilter) portalFilter.value = portalCompanyFilter;
       await loadEmployeesPortal();
       await loadManagerApplications();
+      const reportPanel = document.getElementById('leaveReportPanel');
+      if (reportPanel && !reportPanel.classList.contains('hidden')) {
+        await loadLeaveReport();
+      }
     });
   }
 
@@ -12601,11 +12609,27 @@ async function init() {
       }
     };
   }
+  const leaveReportApplyBtn = document.getElementById('leaveReportApplyBtn');
+  if (leaveReportApplyBtn) {
+    leaveReportApplyBtn.addEventListener('click', () => {
+      readLeaveReportFiltersFromDom();
+      loadLeaveReport();
+    });
+  }
+  const leaveReportUseCycleBtn = document.getElementById('leaveReportUseCycleBtn');
+  if (leaveReportUseCycleBtn) {
+    leaveReportUseCycleBtn.addEventListener('click', async () => {
+      await applyLeaveReportCycleDates();
+      readLeaveReportFiltersFromDom();
+      loadLeaveReport();
+    });
+  }
   const exportBtn = document.getElementById('exportLeavesBtn');
   if (exportBtn) {
     exportBtn.onclick = async () => {
       try {
-        const res = await apiFetch('/leave-report/export');
+        readLeaveReportFiltersFromDom();
+        const res = await apiFetch('/leave-report/export' + buildLeaveReportQueryString());
         if (!res.ok) throw new Error('Export failed');
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
@@ -12676,6 +12700,7 @@ async function init() {
 
   // Change password handlers
   initChangePassModal();
+  initAdminResetPasswordModal();
   document.getElementById('changePassForm')?.addEventListener('submit', onChangePassSubmit);
 
   const empCancelBtn = document.getElementById('empCancelBtn');
@@ -12969,7 +12994,8 @@ function renderPreviousLeaves(apps, emp) {
     const days = calculateLeaveDays(app.from, app.to, app.halfDay);
     let typeLabel = capitalize(app.type) + ' leave';
     if (app.halfDay) {
-      typeLabel += app.halfDayPeriod ? ` · half day ${app.halfDayPeriod}` : ' · half day';
+      const period = getHalfDayPeriod(app);
+      typeLabel += period ? ` · half day ${period}` : ' · half day';
     }
     const status = (app.status || 'pending').toLowerCase();
     const icon = typeIcon[app.type] || 'event';
@@ -13006,6 +13032,27 @@ function renderPreviousLeaves(apps, emp) {
 function capitalize(str) {
   if (!str) return '';
   return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function getHalfDayPeriod(app) {
+  const value = app?.halfDayPeriod || app?.halfDayType;
+  if (!value) return '';
+  return String(value).trim().toUpperCase();
+}
+
+function formatHalfDaySuffix(app) {
+  if (!app?.halfDay) return '';
+  const period = getHalfDayPeriod(app);
+  return period ? ` (Half Day ${period})` : ' (Half Day)';
+}
+
+function formatHalfDayChipHtml(app) {
+  if (!app?.halfDay) return '—';
+  const period = getHalfDayPeriod(app);
+  if (!period) {
+    return '<span class="chip chip--half-day">Half day</span>';
+  }
+  return `<span class="chip chip--half-day" title="Half-day leave">${escapeHtml(period)}</span>`;
 }
 
 function calculateLeaveDays(from, to, halfDay) {
@@ -13136,8 +13183,9 @@ async function loadManagerApplications() {
       let daysText = days;
       let typeLabel = capitalize(app.type) + ' Leave';
       if (app.halfDay) {
-        typeLabel += ` (Half Day${app.halfDayPeriod ? ' ' + app.halfDayPeriod : ''})`;
+        typeLabel += formatHalfDaySuffix(app);
       }
+      const halfDayChip = app.halfDay ? formatHalfDayChipHtml(app) : '';
       const canCancel = canCancelLeaveApplication(app, app.employeeId);
       return `
         <article class="list-card" data-leave-app-id="${app.id}">
@@ -13146,6 +13194,7 @@ async function loadManagerApplications() {
               <span class="material-symbols-rounded">assignment_ind</span>
               <span>${emp ? emp.name : 'Unknown'}</span>
               <span class="chip chip--info">${typeLabel}</span>
+              ${halfDayChip}
             </div>
             <div class="text-muted"><strong>From:</strong> ${app.from} · <strong>To:</strong> ${app.to} · <strong>Days:</strong> ${daysText}</div>
             <div class="text-muted"><strong>Reason:</strong> <span class="text-quiet">${app.reason||'-'}</span></div>
@@ -13199,14 +13248,16 @@ async function loadOnLeaveToday() {
       const emp = emps.find(e => e.id == app.employeeId);
       let typeLabel = capitalize(app.type) + ' Leave';
       if (app.halfDay) {
-        typeLabel += ` (Half Day${app.halfDayPeriod ? ' ' + app.halfDayPeriod : ''})`;
+        typeLabel += formatHalfDaySuffix(app);
       }
+      const halfDayChip = app.halfDay ? formatHalfDayChipHtml(app) : '';
       return `
         <article class="history-card" style="background: rgba(255, 248, 230, 0.9); border-color: rgba(255, 211, 140, 0.45);">
           <div class="history-header">
             <span class="material-symbols-rounded">flight_takeoff</span>
             <span>${emp ? emp.name : 'Unknown'}</span>
             ${emp && emp.Project ? `<span class="chip chip--info">${emp.Project}</span>` : ''}
+            ${halfDayChip}
           </div>
           <div class="text-muted"><strong>Type:</strong> <span class="chip chip--approved">${typeLabel}</span></div>
           <div class="text-muted"><strong>From:</strong> ${app.from}</div>
@@ -13257,8 +13308,9 @@ async function loadManagerUpcomingLeaves() {
     let daysText = days;
     let typeLabel = capitalize(app.type) + ' Leave';
     if (app.halfDay) {
-      typeLabel += ` (Half Day${app.halfDayPeriod ? ' ' + app.halfDayPeriod : ''})`;
+      typeLabel += formatHalfDaySuffix(app);
     }
+    const halfDayChip = app.halfDay ? formatHalfDayChipHtml(app) : '';
     const canCancel = canCancelLeaveApplication(app, app.employeeId);
     const icon = typeIcon[app.type] || 'event_available';
     return `
@@ -13268,6 +13320,7 @@ async function loadManagerUpcomingLeaves() {
             <span class="material-symbols-rounded">${icon}</span>
             <span>${typeLabel}</span>
             <span class="chip chip--approved">Approved</span>
+            ${halfDayChip}
           </div>
           <div class="text-muted"><strong>Name:</strong> ${emp ? emp.name : 'Unknown'}</div>
           <div class="text-muted"><strong>From:</strong> ${app.from} · <strong>To:</strong> ${app.to}</div>
@@ -13698,6 +13751,9 @@ async function loadEmployeesManage() {
               <button type="button" class="emp-action-btn" title="Edit" onclick="openEditEmployee('${emp.id}')">
                 <span class="material-symbols-rounded">edit</span>
               </button>
+              <button type="button" class="emp-action-btn" title="Reset login password" onclick="openAdminResetPassword('${emp.id}')">
+                <span class="material-symbols-rounded">lock_reset</span>
+              </button>
               <button type="button" class="emp-action-btn ${emp[statusKey] === 'active' ? 'emp-action-btn--warn' : 'emp-action-btn--ok'}" data-action="toggle" data-id="${emp.id}" title="${emp[statusKey] === 'active' ? 'Deactivate' : 'Activate'}">
                 <span class="material-symbols-rounded">${emp[statusKey] === 'active' ? 'person_off' : 'person_check'}</span>
               </button>
@@ -13908,6 +13964,10 @@ async function loadEmployeesManage() {
               <span class="material-symbols-rounded">edit</span>
               Edit
             </button>
+            <button type="button" class="md-button md-button--outlined md-button--small" onclick="openAdminResetPassword('${emp.id}')">
+              <span class="material-symbols-rounded">lock_reset</span>
+              Reset login
+            </button>
             <button type="button" class="md-button md-button--outlined md-button--small" data-action="toggle" data-id="${emp.id}">
               ${emp[statusKey] === 'active' ? 'Deactivate' : 'Activate'}
             </button>
@@ -13942,6 +14002,107 @@ window.openEditEmployee = async function(empId) {
   const emp = emps.find(e => e.id == empId);
   const fields = await getDynamicEmployeeFields();
   openEmpDrawer({title: 'Edit Employee', fields, initial: emp});
+};
+
+function getEmployeeLoginEmail(employee) {
+  if (!employee || typeof employee !== 'object') return '';
+  const key = Object.keys(employee).find(k => {
+    const normalized = k.toLowerCase();
+    return normalized === 'email' || normalized.replace(/\s+/g, '') === 'email' || normalized.includes('email');
+  });
+  if (!key) return '';
+  return String(employee[key] || '').trim();
+}
+
+let adminResetPasswordEmployeeId = null;
+
+function closeAdminResetPasswordModal() {
+  const modal = document.getElementById('adminResetPasswordModal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('app-dialog-open');
+  adminResetPasswordEmployeeId = null;
+  const input = document.getElementById('adminResetPasswordInput');
+  if (input) input.value = '';
+}
+
+function initAdminResetPasswordModal() {
+  const modal = document.getElementById('adminResetPasswordModal');
+  const form = document.getElementById('adminResetPasswordForm');
+  if (!modal || !form || modal.dataset.bound === 'true') return;
+  modal.dataset.bound = 'true';
+
+  document.getElementById('adminResetPasswordCancel')?.addEventListener('click', closeAdminResetPasswordModal);
+  modal.querySelectorAll('[data-admin-reset-pass-dismiss]').forEach(el => {
+    el.addEventListener('click', closeAdminResetPasswordModal);
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+      closeAdminResetPasswordModal();
+    }
+  });
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!adminResetPasswordEmployeeId) return;
+    const submitBtn = document.getElementById('adminResetPasswordSubmit');
+    const passwordInput = document.getElementById('adminResetPasswordInput');
+    const password = passwordInput?.value?.trim() || '';
+    setButtonLoading(submitBtn, true);
+    try {
+      const res = await apiFetch(`/employees/${adminResetPasswordEmployeeId}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(password ? { password } : {})
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'Unable to reset login password.', 'error');
+        return;
+      }
+      const created = data.accountCreated ? ' Login account was created.' : '';
+      const defaultNote = data.usedDefaultPassword ? ' Default system password applied.' : '';
+      showToast(`Password updated for ${data.email || 'employee'}.${created}${defaultNote}`, 'success');
+      closeAdminResetPasswordModal();
+    } catch (err) {
+      console.error(err);
+      showToast('Unable to reset login password.', 'error');
+    } finally {
+      setButtonLoading(submitBtn, false);
+    }
+  });
+}
+
+window.openAdminResetPassword = async function(empId) {
+  if (!isManagerRole(currentUser)) {
+    showToast('Only managers can reset employee passwords.', 'warning');
+    return;
+  }
+  const emps = await getJSON('/employees');
+  const emp = emps.find(e => e.id == empId);
+  if (!emp) {
+    showToast('Employee not found.', 'error');
+    return;
+  }
+  const email = getEmployeeLoginEmail(emp);
+  if (!email) {
+    showToast('Add a work email on this employee record before resetting login.', 'warning');
+    return;
+  }
+  adminResetPasswordEmployeeId = emp.id;
+  const summaryEl = document.getElementById('adminResetPasswordEmployee');
+  if (summaryEl) {
+    summaryEl.innerHTML = `<strong>${escapeHtml(emp.name || `Employee ${emp.id}`)}</strong><br>Sign-in email: <strong>${escapeHtml(email)}</strong>`;
+  }
+  const input = document.getElementById('adminResetPasswordInput');
+  if (input) input.value = '';
+  const modal = document.getElementById('adminResetPasswordModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('app-dialog-open');
+  setTimeout(() => input?.focus(), 100);
 };
 
 async function onInternFlagChange(event) {
@@ -14176,39 +14337,164 @@ async function loadLocationInsights() {
   if (emptyState) emptyState.classList.add('hidden');
 }
 
-async function loadLeaveReport() {
-  const data = await getJSON('/leave-report');
-  const body = document.getElementById('leaveReportBody');
-  if (!body) return;
-  if (!data.length) {
-    body.innerHTML = '<tr><td colspan="5" style="padding:16px; font-style:italic;" class="text-muted">No leave records.</td></tr>';
-    return;
+const leaveReportFilterState = {
+  start: '',
+  end: '',
+  status: 'approved',
+  includeZero: false,
+  cycleLoaded: false
+};
+
+function normalizeLeaveReportPayload(data) {
+  if (Array.isArray(data)) {
+    return { rows: data, range: null };
   }
-  body.innerHTML = data.map(r => {
-    const breakdown = Object.entries(r.leaves).map(([k,v]) => `${capitalize(k)}: ${v}`).join(', ');
-    return `<tr>
-      <td>${r.name}</td>
-      <td>${r.title || ''}</td>
-      <td>${r.location || ''}</td>
-      <td style="text-align:center; font-weight:600;">${r.totalDays}</td>
-      <td>${breakdown}</td>
-    </tr>`;
-  }).join('');
+  return {
+    rows: Array.isArray(data?.rows) ? data.rows : [],
+    range: data?.range || null
+  };
+}
+
+function readLeaveReportFiltersFromDom() {
+  leaveReportFilterState.start = document.getElementById('leaveReportStart')?.value || '';
+  leaveReportFilterState.end = document.getElementById('leaveReportEnd')?.value || '';
+  leaveReportFilterState.status = document.getElementById('leaveReportStatus')?.value || 'approved';
+  leaveReportFilterState.includeZero = Boolean(document.getElementById('leaveReportIncludeZero')?.checked);
+}
+
+function buildLeaveReportQueryString() {
+  const params = new URLSearchParams();
+  if (leaveReportFilterState.start) params.set('start', leaveReportFilterState.start);
+  if (leaveReportFilterState.end) params.set('end', leaveReportFilterState.end);
+  if (leaveReportFilterState.status) params.set('status', leaveReportFilterState.status);
+  if (leaveReportFilterState.includeZero) params.set('includeZero', 'true');
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
+function filterLeaveReportRowsByDepartment(rows, employees, idKey = 'id') {
+  if (!portalCompanyFilter || portalCompanyFilter === 'all') return rows;
+  return rows.filter(row => {
+    const empId = row[idKey] ?? row.employeeId;
+    const emp = employees.find(e => String(e.id) === String(empId));
+    return emp && employeeMatchesCompanyFilter(emp, portalCompanyFilter);
+  });
+}
+
+function renderLeaveReportRangeHint(range) {
+  const hint = document.getElementById('leaveReportRangeHint');
+  if (!hint || !range?.start || !range?.end) return;
+  hint.textContent = `Showing leave overlapping ${formatShortDate(range.start)} – ${formatShortDate(range.end)}.`;
+}
+
+async function applyLeaveReportCycleDates() {
+  const cycle = await getJSON('/leave-report/cycle');
+  leaveReportFilterState.start = cycle.start || '';
+  leaveReportFilterState.end = cycle.end || '';
+  const startEl = document.getElementById('leaveReportStart');
+  const endEl = document.getElementById('leaveReportEnd');
+  if (startEl) startEl.value = leaveReportFilterState.start;
+  if (endEl) endEl.value = leaveReportFilterState.end;
+  const label = document.getElementById('leaveReportCycleLabel');
+  if (label && cycle.start && cycle.end) {
+    label.textContent = `Current leave cycle: ${formatShortDate(cycle.start)} – ${formatShortDate(cycle.end)}`;
+  }
+  leaveReportFilterState.cycleLoaded = true;
+}
+
+async function initLeaveReportFiltersIfNeeded() {
+  if (leaveReportFilterState.cycleLoaded) return;
+  await applyLeaveReportCycleDates();
+  const statusEl = document.getElementById('leaveReportStatus');
+  if (statusEl) statusEl.value = leaveReportFilterState.status;
+  const includeZeroEl = document.getElementById('leaveReportIncludeZero');
+  if (includeZeroEl) includeZeroEl.checked = leaveReportFilterState.includeZero;
+}
+
+function leaveStatusChipClass(status) {
+  const value = String(status || 'pending').toLowerCase();
+  if (value === 'approved') return 'chip--approved';
+  if (value === 'rejected' || value === 'cancelled') return 'chip--rejected';
+  return 'chip--pending';
+}
+
+async function loadLeaveReport() {
+  const body = document.getElementById('leaveReportBody');
+  const detailBody = document.getElementById('leaveReportDetailBody');
+  if (!body) return;
+
+  try {
+    await initLeaveReportFiltersIfNeeded();
+    readLeaveReportFiltersFromDom();
+    const query = buildLeaveReportQueryString();
+    const [summaryPayload, detailPayload, employees] = await Promise.all([
+      getJSON('/leave-report' + query),
+      getJSON('/leave-report/applications' + query),
+      getJSON('/employees')
+    ]);
+    const summary = normalizeLeaveReportPayload(summaryPayload);
+    const detail = normalizeLeaveReportPayload(detailPayload);
+    const range = summary.range || detail.range;
+    renderLeaveReportRangeHint(range);
+
+    const summaryRows = filterLeaveReportRowsByDepartment(summary.rows, employees, 'id');
+    const detailRows = filterLeaveReportRowsByDepartment(detail.rows, employees, 'employeeId');
+
+    if (!summaryRows.length) {
+      body.innerHTML = '<tr><td colspan="5" style="padding:16px; font-style:italic;" class="text-muted">No leave records for this filter.</td></tr>';
+    } else {
+      body.innerHTML = summaryRows.map(r => {
+        const breakdown = Object.entries(r.leaves || {}).map(([k, v]) => `${capitalize(k)}: ${v}`).join(', ');
+        return `<tr>
+          <td>${escapeHtml(r.name)}</td>
+          <td>${escapeHtml(r.title || '')}</td>
+          <td>${escapeHtml(r.location || '')}</td>
+          <td style="text-align:center; font-weight:600;">${r.totalDays}</td>
+          <td>${escapeHtml(breakdown)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    if (detailBody) {
+      if (!detailRows.length) {
+        detailBody.innerHTML = '<tr><td colspan="7" style="padding:16px; font-style:italic;" class="text-muted">No leave applications in this period.</td></tr>';
+      } else {
+        detailBody.innerHTML = detailRows.map(row => {
+          const status = String(row.status || 'pending');
+          return `<tr>
+            <td>${escapeHtml(row.employeeName || '')}</td>
+            <td>${escapeHtml(capitalize(row.type))}</td>
+            <td>${escapeHtml(formatShortDate(row.from))}</td>
+            <td>${escapeHtml(formatShortDate(row.to))}</td>
+            <td style="text-align:center;">${row.days}</td>
+            <td>${formatHalfDayChipHtml(row)}</td>
+            <td><span class="chip ${leaveStatusChipClass(status)}">${escapeHtml(capitalize(status))}</span></td>
+          </tr>`;
+        }).join('');
+      }
+    }
+  } catch (err) {
+    console.error(err);
+    body.innerHTML = '<tr><td colspan="5" style="padding:16px; color:#b3261e;">Failed to load leave report.</td></tr>';
+    if (detailBody) {
+      detailBody.innerHTML = '<tr><td colspan="7" style="padding:16px; color:#b3261e;">Failed to load leave detail.</td></tr>';
+    }
+  }
 }
 
 async function loadLeaveRange(start, end) {
-  const params = [];
-  if (start) params.push('start=' + start);
-  if (end) params.push('end=' + end);
-  const query = params.length ? '?' + params.join('&') : '';
-  const data = await getJSON('/leave-report' + query);
+  const params = new URLSearchParams();
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const data = normalizeLeaveReportPayload(await getJSON('/leave-report' + query));
   const container = document.getElementById('leaveRangeCards');
   if (!container) return;
-  if (!data.length) {
+  if (!data.rows.length) {
     container.innerHTML = '<div class="text-muted" style="font-style:italic;">No leaves in this period.</div>';
     return;
   }
-  container.innerHTML = data.map(r => {
+  container.innerHTML = data.rows.map(r => {
     const breakdown = Object.entries(r.leaves).map(([k,v]) => `${capitalize(k)}: ${v}`).join(', ');
     return `<article class="history-card">
       <div class="history-header">

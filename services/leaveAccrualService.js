@@ -105,6 +105,10 @@ function parseEmployeeDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function normalizeDateFieldKey(value) {
+  return String(value || '').toLowerCase().replace(/\s+/g, '');
+}
+
 function getEmployeeDateValue(employee, keys = []) {
   if (!employee || typeof employee !== 'object') return null;
   for (const key of keys) {
@@ -113,7 +117,21 @@ function getEmployeeDateValue(employee, keys = []) {
       if (parsed) return parsed;
     }
   }
+  const targets = keys.map(normalizeDateFieldKey).filter(Boolean);
+  if (!targets.length) return null;
+  for (const key of Object.keys(employee)) {
+    const normalizedKey = normalizeDateFieldKey(key);
+    if (!targets.includes(normalizedKey)) continue;
+    const parsed = parseEmployeeDate(employee[key]);
+    if (parsed) return parsed;
+  }
   return null;
+}
+
+function isActiveEmployeeStatus(status) {
+  const normalized = typeof status === 'string' ? status.trim().toLowerCase() : '';
+  if (!normalized) return true;
+  return !['inactive', 'deactivated', 'disabled'].includes(normalized);
 }
 
 function startOfDay(date) {
@@ -277,7 +295,8 @@ function cloneDefaultLeaveBalances() {
 function resolveEmploymentStart(employee, cycleStart) {
   const internshipStart = getEmployeeDateValue(employee, [
     'internshipStartDate',
-    'Start Date - Internship or Probation'
+    'Start Date - Internship or Probation',
+    'Start Date - Internship Or Probation'
   ]);
   const fullTimeStart = getEmployeeDateValue(employee, [
     'fullTimeStartDate',
@@ -291,7 +310,8 @@ function resolveEmploymentStart(employee, cycleStart) {
 function resolveEmploymentEnd(employee, cycleEnd) {
   const internshipEnd = getEmployeeDateValue(employee, [
     'internshipEndDate',
-    'End Date - Internship or Probation'
+    'End Date - Internship or Probation',
+    'End Date - Internship Or Probation'
   ]);
   const fullTimeStart = getEmployeeDateValue(employee, [
     'fullTimeStartDate',
@@ -301,12 +321,23 @@ function resolveEmploymentEnd(employee, cycleEnd) {
   ]);
   const fullTimeEnd = getEmployeeDateValue(employee, [
     'fullTimeEndDate',
-    'endDate',
-    'end_date',
     'End Date - Full Time'
   ]);
-  const explicit = fullTimeEnd || (!fullTimeStart && internshipEnd ? internshipEnd : null);
-  return startOfDay(explicit || cycleEnd);
+  const genericEnd = getEmployeeDateValue(employee, ['endDate', 'end_date']);
+  const cycleEndDay = startOfDay(cycleEnd);
+  const active = isActiveEmployeeStatus(employee?.status);
+
+  if (fullTimeEnd) {
+    return startOfDay(fullTimeEnd);
+  }
+  if (fullTimeStart) {
+    return cycleEndDay;
+  }
+  if (!active) {
+    if (internshipEnd) return startOfDay(internshipEnd);
+    if (genericEnd) return startOfDay(genericEnd);
+  }
+  return cycleEndDay;
 }
 
 function getEffectiveEmploymentWindow(employee, cycleRange) {
