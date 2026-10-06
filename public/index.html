@@ -5279,29 +5279,7 @@
               <span class="material-symbols-rounded">account_balance_wallet</span>
               Leave Balances
             </div>
-            <div id="profileLeaveBalances" class="profile-leave-stack">
-              <div class="profile-leave-row profile-leave-row--annual">
-                <span class="material-symbols-rounded profile-leave-row__icon">beach_access</span>
-                <div class="profile-leave-row__text">
-                  <span class="profile-leave-row__label">Annual</span>
-                  <span class="profile-leave-row__value"><strong id="profileBalAnnual">-</strong> <small>days</small></span>
-                </div>
-              </div>
-              <div class="profile-leave-row profile-leave-row--casual">
-                <span class="material-symbols-rounded profile-leave-row__icon">sunny</span>
-                <div class="profile-leave-row__text">
-                  <span class="profile-leave-row__label">Casual</span>
-                  <span class="profile-leave-row__value"><strong id="profileBalCasual">-</strong> <small>days</small></span>
-                </div>
-              </div>
-              <div class="profile-leave-row profile-leave-row--medical">
-                <span class="material-symbols-rounded profile-leave-row__icon">medical_information</span>
-                <div class="profile-leave-row__text">
-                  <span class="profile-leave-row__label">Medical</span>
-                  <span class="profile-leave-row__value"><strong id="profileBalMedical">-</strong> <small>days</small></span>
-                </div>
-              </div>
-            </div>
+            <div id="profileLeaveBalances" class="leave-tracker leave-tracker--profile" aria-live="polite"></div>
           </div>
 
           <div class="md-card profile-action-card" id="profilePayslipCard">
@@ -5881,31 +5859,12 @@
 
         <div class="leave-portal__balances md-card">
           <div class="leave-portal__balances-head">
-            <h3>Available balance</h3>
-            <p class="leave-portal__balances-note">Refreshes monthly. Requests beyond the negative limit are blocked.</p>
+            <h3>Your leave balance</h3>
+            <p class="leave-portal__balances-note">Earned monthly in your leave cycle. Approved leave is deducted from earned days.</p>
           </div>
-          <div id="balanceDisplay" class="leave-balance-strip">
-            <div class="leave-balance-chip leave-balance-chip--annual">
-              <span class="leave-balance-chip__icon material-symbols-rounded">beach_access</span>
-              <div class="leave-balance-chip__text">
-                <span class="leave-balance-chip__label">Annual</span>
-                <span class="leave-balance-chip__value"><span id="balAnnual">—</span> <small>days</small></span>
-              </div>
-            </div>
-            <div class="leave-balance-chip leave-balance-chip--casual">
-              <span class="leave-balance-chip__icon material-symbols-rounded">sunny</span>
-              <div class="leave-balance-chip__text">
-                <span class="leave-balance-chip__label">Casual</span>
-                <span class="leave-balance-chip__value"><span id="balCasual">—</span> <small>days</small></span>
-              </div>
-            </div>
-            <div class="leave-balance-chip leave-balance-chip--medical">
-              <span class="leave-balance-chip__icon material-symbols-rounded">medical_information</span>
-              <div class="leave-balance-chip__text">
-                <span class="leave-balance-chip__label">Medical</span>
-                <span class="leave-balance-chip__value"><span id="balMedical">—</span> <small>days</small></span>
-              </div>
-            </div>
+          <div id="leaveBalanceTracker" class="leave-tracker" aria-live="polite"></div>
+          <div id="balanceDisplay" class="leave-balance-strip hidden" aria-hidden="true">
+            <span id="balAnnual"></span><span id="balCasual"></span><span id="balMedical"></span>
           </div>
           <div id="balanceWarning" class="leave-balance-warning hidden">
             <span class="material-symbols-rounded">warning</span>
@@ -7323,7 +7282,7 @@
             <span class="material-symbols-rounded">insights</span>
             Leave Report
           </h2>
-          <p class="panel-subtitle">Export snapshots, explore calendar activity, and track leave totals.</p>
+          <p class="panel-subtitle">Totals by employee, calendar by day (full or half-day AM/PM), and CSV export.</p>
         </div>
 
         <div class="leave-report-toolbar md-card">
@@ -7349,6 +7308,18 @@
               <input type="checkbox" id="leaveReportIncludeZero" />
               Show employees with zero leave
             </label>
+            <div class="md-field leave-report-toolbar__field leave-report-toolbar__field--employee">
+              <label class="md-label" for="leaveReportEmployeeFilter">Employee (calendar)</label>
+              <input
+                type="search"
+                id="leaveReportEmployeeFilter"
+                class="md-input"
+                list="leaveReportEmployeeOptions"
+                placeholder="All employees"
+                autocomplete="off"
+              />
+              <datalist id="leaveReportEmployeeOptions"></datalist>
+            </div>
           </div>
           <div class="leave-report-toolbar__actions list-card__actions">
             <button type="button" id="leaveReportUseCycleBtn" class="md-button md-button--text md-button--small">
@@ -7386,28 +7357,12 @@
           </table>
         </div>
 
-        <div class="md-card" style="overflow-x:auto; margin-top: 1rem;">
+        <div id="calendarSection" class="md-card leave-report-calendar">
           <div class="card-title">
-            <span class="material-symbols-rounded">event_note</span>
-            Leave detail (who took leave and when)
+            <span class="material-symbols-rounded">calendar_month</span>
+            Leave calendar
           </div>
-          <table id="leaveReportDetailTable" class="data-table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Type</th>
-                <th>From</th>
-                <th>To</th>
-                <th>Days</th>
-                <th>AM/PM</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody id="leaveReportDetailBody"></tbody>
-          </table>
-        </div>
-
-        <div id="calendarSection">
+          <p class="leave-report-calendar__hint text-muted">One row per person per day. Half-day leaves show AM or PM.</p>
           <div class="calendar-controls">
             <button id="calPrev" class="md-button md-button--text md-button--small">
               <span class="material-symbols-rounded">chevron_left</span>

@@ -1874,9 +1874,17 @@ function formatLeaveBalancesForResponse(balances, { dateNow = new Date(), settin
         : defaultEntitlement;
     const earned = roundToOneDecimal(entry?.earned || entry?.accrued || 0);
     const adjustment = roundToOneDecimal(entry?.manualAdjustment ?? entry?.adjustment ?? 0);
+    const monthlyAccrualRaw = Number(entry?.monthlyAccrual);
+    const monthlyEarn = roundToOneDecimal(
+      Number.isFinite(monthlyAccrualRaw) && monthlyAccrualRaw > 0
+        ? monthlyAccrualRaw
+        : entitlement / 12
+    );
     return {
       entitlement,
       yearlyAllocation: entitlement,
+      monthlyEarn,
+      monthlyAccrual: monthlyEarn,
       earned,
       accrued: earned,
       taken: roundToOneDecimal(entry?.taken || 0),

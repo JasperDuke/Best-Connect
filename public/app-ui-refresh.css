@@ -2096,6 +2096,76 @@ body.emp-column-menu-open {
   margin: 0;
 }
 
+.leave-report-toolbar__field--employee {
+  min-width: 14rem;
+  flex: 1 1 16rem;
+}
+
+.leave-report-calendar {
+  margin-top: 1rem;
+}
+
+.leave-report-calendar__hint {
+  margin: -0.25rem 0 0.5rem;
+  font-size: 0.875rem;
+}
+
+#calendarSection.leave-report-calendar {
+  gap: 12px;
+}
+
+.calendar-name__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.calendar-duration {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 1px 6px;
+  line-height: 1.4;
+}
+
+.calendar-duration--full {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.calendar-duration--half {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.calendar-status {
+  font-size: 0.62rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  text-transform: capitalize;
+}
+
+.calendar-status--pending {
+  background: #fef9c3;
+  color: #854d0e;
+}
+
+.calendar-status--rejected,
+.calendar-status--cancelled {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .leave-report-toolbar__checkbox {
   display: flex;
   align-items: center;
@@ -2122,4 +2192,107 @@ body.emp-column-menu-open {
   border: 1px solid #fcd34d;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.leave-tracker__cycle {
+  margin: 0 0 12px;
+  font-size: 0.875rem;
+}
+
+.leave-tracker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.leave-tracker__empty {
+  margin: 0;
+  font-style: italic;
+}
+
+.leave-tracker-card {
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: #fff;
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.leave-tracker-card--annual { border-left: 4px solid #2563eb; }
+.leave-tracker-card--casual { border-left: 4px solid #d97706; }
+.leave-tracker-card--medical { border-left: 4px solid #16a34a; }
+
+.leave-tracker-card--negative .leave-tracker-card__remaining-value {
+  color: #b91c1c;
+}
+
+.leave-tracker-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.leave-tracker-card__icon {
+  font-size: 1.25rem;
+  color: #475569;
+}
+
+.leave-tracker-card__remaining {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.leave-tracker-card__remaining-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.leave-tracker-card__remaining-value {
+  font-size: 1.65rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #0f172a;
+}
+
+.leave-tracker-card__remaining-value small {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.leave-tracker-card__stats {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.leave-tracker-card__stats div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.leave-tracker-card__stats dt {
+  margin: 0;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.leave-tracker-card__stats dd {
+  margin: 0;
+  font-weight: 600;
+  color: #334155;
+  text-align: right;
+}
+
+.leave-tracker--profile .leave-tracker__grid {
+  grid-template-columns: 1fr;
 }

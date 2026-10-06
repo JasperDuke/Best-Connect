@@ -177,9 +177,17 @@ function normalizeLeaveEntry(entry, type) {
       yearlyAllocation: Number.isFinite(entry.yearlyAllocation)
         ? entry.yearlyAllocation
         : Number.isFinite(entry.entitlement) ? entry.entitlement : defaults.yearlyAllocation,
-      monthlyAccrual: Number.isFinite(entry.monthlyAccrual) ? entry.monthlyAccrual : defaults.monthlyAccrual,
+      monthlyAccrual: Number.isFinite(entry.monthlyAccrual)
+        ? entry.monthlyAccrual
+        : Number.isFinite(entry.monthlyEarn)
+          ? entry.monthlyEarn
+          : defaults.monthlyAccrual,
       taken: Number.isFinite(entry.taken) ? entry.taken : 0,
-      accrued: Number.isFinite(entry.accrued) ? entry.accrued : Number.isFinite(entry.earned) ? entry.earned : null,
+      accrued: Number.isFinite(entry.accrued)
+        ? entry.accrued
+        : Number.isFinite(entry.earned)
+          ? entry.earned
+          : null,
       manualAdjustment: Number.isFinite(entry.manualAdjustment)
         ? entry.manualAdjustment
         : Number.isFinite(entry.adjustment) ? entry.adjustment : 0
@@ -194,6 +202,69 @@ function normalizeLeaveEntry(entry, type) {
     accrued: null,
     manualAdjustment: 0
   };
+}
+
+function formatLeaveDayAmount(value) {
+  const numeric = roundToOneDecimal(value);
+  return Number.isFinite(numeric) ? numeric.toFixed(1) : '0.0';
+}
+
+function renderEmployeeLeaveTracker(container, leaveBalances) {
+  if (!container) return;
+  if (!leaveBalances || typeof leaveBalances !== 'object') {
+    container.innerHTML = '<p class="text-muted leave-tracker__empty">Select an employee to view leave balances.</p>';
+    return;
+  }
+
+  const cycleStart = leaveBalances.cycleStart;
+  const cycleEnd = leaveBalances.cycleEnd;
+  const cycleLabel = cycleStart && cycleEnd
+    ? `${formatShortDate(cycleStart)} – ${formatShortDate(cycleEnd)}`
+    : 'Current leave cycle';
+
+  const types = [
+    { type: 'annual', label: 'Annual', icon: 'beach_access' },
+    { type: 'casual', label: 'Casual', icon: 'sunny' },
+    { type: 'medical', label: 'Medical', icon: 'medical_information' }
+  ];
+
+  const cards = types.map(({ type, label, icon }) => {
+    const entry = normalizeLeaveEntry(leaveBalances[type], type);
+    const monthly = Number.isFinite(entry.monthlyAccrual)
+      ? entry.monthlyAccrual
+      : entry.yearlyAllocation / 12;
+    const earned = Number.isFinite(entry.accrued) ? entry.accrued : 0;
+    const taken = entry.taken || 0;
+    const remaining = entry.balance || 0;
+    const adjustment = entry.manualAdjustment || 0;
+    const entitlement = entry.yearlyAllocation || 0;
+    const negClass = remaining < 0 ? ' leave-tracker-card--negative' : '';
+
+    return `
+      <article class="leave-tracker-card leave-tracker-card--${type}${negClass}">
+        <header class="leave-tracker-card__head">
+          <span class="material-symbols-rounded leave-tracker-card__icon" aria-hidden="true">${icon}</span>
+          <span class="leave-tracker-card__title">${escapeHtml(label)} leave</span>
+        </header>
+        <div class="leave-tracker-card__remaining">
+          <span class="leave-tracker-card__remaining-label">Remaining</span>
+          <span class="leave-tracker-card__remaining-value">${formatLeaveDayAmount(remaining)} <small>days</small></span>
+        </div>
+        <dl class="leave-tracker-card__stats">
+          <div><dt>Monthly earning</dt><dd>${formatLeaveDayAmount(monthly)} / mo</dd></div>
+          <div><dt>Earned this cycle</dt><dd>${formatLeaveDayAmount(earned)} days</dd></div>
+          <div><dt>Deducted (taken)</dt><dd>${formatLeaveDayAmount(taken)} days</dd></div>
+          ${adjustment !== 0 ? `<div><dt>Adjustment</dt><dd>${formatLeaveDayAmount(adjustment)} days</dd></div>` : ''}
+          <div><dt>Yearly entitlement</dt><dd>${formatLeaveDayAmount(entitlement)} days</dd></div>
+        </dl>
+      </article>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <p class="leave-tracker__cycle text-muted">${escapeHtml(cycleLabel)}</p>
+    <div class="leave-tracker__grid">${cards}</div>
+  `;
 }
 
 function getEmployeeSearchString(employee) {
@@ -1777,9 +1848,8 @@ function showPanel(name) {
   if (name === 'leaveReport') {
     reportPanel.classList.remove('hidden');
     reportBtn.classList.add('active-tab');
-    loadLeaveReport();
     calendarCurrent = new Date();
-    loadLeaveCalendar();
+    loadLeaveReport();
     const cards = document.getElementById('leaveRangeCards');
     if (cards) cards.innerHTML = '';
   }
@@ -7792,11 +7862,7 @@ function renderMyProfile() {
   setProfileSummaryField('profileSummaryStatus', summary.status);
   renderProfileStatusBadge(summary.status);
 
-  const balancesForDisplay = availableLeaveBalances || leaveBalances;
-  const normalizedBalances = normalizeLeaveBalanceMap(balancesForDisplay);
-  setBalanceValue('profileBalAnnual', normalizedBalances.annual);
-  setBalanceValue('profileBalCasual', normalizedBalances.casual);
-  setBalanceValue('profileBalMedical', normalizedBalances.medical);
+  renderEmployeeLeaveTracker(document.getElementById('profileLeaveBalances'), leaveBalances);
 
   const container = document.getElementById('profileSections');
   const detailsWrap = document.getElementById('profileDetailsWrap');
@@ -12616,6 +12682,18 @@ async function init() {
       loadLeaveReport();
     });
   }
+  const leaveReportEmployeeFilter = document.getElementById('leaveReportEmployeeFilter');
+  if (leaveReportEmployeeFilter && !leaveReportEmployeeFilter.dataset.bound) {
+    leaveReportEmployeeFilter.dataset.bound = 'true';
+    leaveReportEmployeeFilter.addEventListener('input', () => {
+      readLeaveReportFiltersFromDom();
+      renderLeaveReportCalendar();
+    });
+    leaveReportEmployeeFilter.addEventListener('change', () => {
+      readLeaveReportFiltersFromDom();
+      renderLeaveReportCalendar();
+    });
+  }
   const leaveReportUseCycleBtn = document.getElementById('leaveReportUseCycleBtn');
   if (leaveReportUseCycleBtn) {
     leaveReportUseCycleBtn.addEventListener('click', async () => {
@@ -12767,6 +12845,7 @@ async function onEmployeeChange() {
   const balMedical = document.getElementById('balMedical');
   const typeSel = document.getElementById('type');
   if (!empId) {
+    renderEmployeeLeaveTracker(document.getElementById('leaveBalanceTracker'), null);
     [balAnnual, balCasual, balMedical].forEach(el => {
       if (el) {
         el.textContent = '-';
@@ -12790,6 +12869,8 @@ async function onEmployeeChange() {
 
   const { available } = buildAvailableLeaveState(emp.leaveBalances, apps);
   currentLeaveBalances = available;
+
+  renderEmployeeLeaveTracker(document.getElementById('leaveBalanceTracker'), emp.leaveBalances);
 
   setBalanceValue('balAnnual', currentLeaveBalances.annual);
   setBalanceValue('balCasual', currentLeaveBalances.casual);
@@ -14342,8 +14423,11 @@ const leaveReportFilterState = {
   end: '',
   status: 'approved',
   includeZero: false,
+  employeeQuery: '',
   cycleLoaded: false
 };
+
+let leaveReportDetailCache = [];
 
 function normalizeLeaveReportPayload(data) {
   if (Array.isArray(data)) {
@@ -14360,6 +14444,79 @@ function readLeaveReportFiltersFromDom() {
   leaveReportFilterState.end = document.getElementById('leaveReportEnd')?.value || '';
   leaveReportFilterState.status = document.getElementById('leaveReportStatus')?.value || 'approved';
   leaveReportFilterState.includeZero = Boolean(document.getElementById('leaveReportIncludeZero')?.checked);
+  leaveReportFilterState.employeeQuery = document.getElementById('leaveReportEmployeeFilter')?.value?.trim() || '';
+}
+
+function leaveReportRowMatchesEmployeeFilter(row) {
+  const query = leaveReportFilterState.employeeQuery.trim().toLowerCase();
+  if (!query) return true;
+  return String(row.employeeName || '').toLowerCase().includes(query);
+}
+
+function populateLeaveReportEmployeeOptions(rows) {
+  const datalist = document.getElementById('leaveReportEmployeeOptions');
+  if (!datalist) return;
+  const names = Array.from(new Set(
+    (rows || [])
+      .map(row => String(row.employeeName || '').trim())
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b));
+  datalist.innerHTML = names.map(name => `<option value="${escapeHtml(name)}"></option>`).join('');
+}
+
+function parseLeaveCalendarDate(value) {
+  const iso = String(value || '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const [year, month, day] = iso.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function toLeaveCalendarIso(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function expandLeaveRowToCalendarDays(row, holidaySet) {
+  const from = parseLeaveCalendarDate(row.from);
+  const to = parseLeaveCalendarDate(row.to);
+  if (!from || !to) return [];
+
+  const entries = [];
+  if (row.halfDay) {
+    const iso = toLeaveCalendarIso(from);
+    const weekend = from.getDay() === 0 || from.getDay() === 6;
+    if (!weekend && !holidaySet.has(iso)) {
+      entries.push({ date: iso, row, dayKind: 'half' });
+    }
+    return entries;
+  }
+
+  for (let cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+    const weekend = cursor.getDay() === 0 || cursor.getDay() === 6;
+    if (weekend) continue;
+    const iso = toLeaveCalendarIso(cursor);
+    if (holidaySet.has(iso)) continue;
+    entries.push({ date: iso, row, dayKind: 'full' });
+  }
+  return entries;
+}
+
+function formatCalendarDurationMarkup(row, dayKind) {
+  if (dayKind === 'half') {
+    const period = getHalfDayPeriod(row);
+    const periodLabel = period || '½';
+    return `<span class="calendar-duration calendar-duration--half" title="Half day">${escapeHtml(periodLabel)}</span>`;
+  }
+  return '<span class="calendar-duration calendar-duration--full" title="Full day">Full</span>';
+}
+
+function formatCalendarStatusMarkup(status) {
+  const value = String(status || 'pending').toLowerCase();
+  if (value === 'approved') return '';
+  const label = capitalize(value);
+  return `<span class="calendar-status calendar-status--${value}">${escapeHtml(label)}</span>`;
 }
 
 function buildLeaveReportQueryString() {
@@ -14420,7 +14577,6 @@ function leaveStatusChipClass(status) {
 
 async function loadLeaveReport() {
   const body = document.getElementById('leaveReportBody');
-  const detailBody = document.getElementById('leaveReportDetailBody');
   if (!body) return;
 
   try {
@@ -14439,6 +14595,8 @@ async function loadLeaveReport() {
 
     const summaryRows = filterLeaveReportRowsByDepartment(summary.rows, employees, 'id');
     const detailRows = filterLeaveReportRowsByDepartment(detail.rows, employees, 'employeeId');
+    leaveReportDetailCache = detailRows;
+    populateLeaveReportEmployeeOptions(detailRows);
 
     if (!summaryRows.length) {
       body.innerHTML = '<tr><td colspan="5" style="padding:16px; font-style:italic;" class="text-muted">No leave records for this filter.</td></tr>';
@@ -14455,30 +14613,12 @@ async function loadLeaveReport() {
       }).join('');
     }
 
-    if (detailBody) {
-      if (!detailRows.length) {
-        detailBody.innerHTML = '<tr><td colspan="7" style="padding:16px; font-style:italic;" class="text-muted">No leave applications in this period.</td></tr>';
-      } else {
-        detailBody.innerHTML = detailRows.map(row => {
-          const status = String(row.status || 'pending');
-          return `<tr>
-            <td>${escapeHtml(row.employeeName || '')}</td>
-            <td>${escapeHtml(capitalize(row.type))}</td>
-            <td>${escapeHtml(formatShortDate(row.from))}</td>
-            <td>${escapeHtml(formatShortDate(row.to))}</td>
-            <td style="text-align:center;">${row.days}</td>
-            <td>${formatHalfDayChipHtml(row)}</td>
-            <td><span class="chip ${leaveStatusChipClass(status)}">${escapeHtml(capitalize(status))}</span></td>
-          </tr>`;
-        }).join('');
-      }
-    }
+    await renderLeaveReportCalendar();
   } catch (err) {
     console.error(err);
     body.innerHTML = '<tr><td colspan="5" style="padding:16px; color:#b3261e;">Failed to load leave report.</td></tr>';
-    if (detailBody) {
-      detailBody.innerHTML = '<tr><td colspan="7" style="padding:16px; color:#b3261e;">Failed to load leave detail.</td></tr>';
-    }
+    leaveReportDetailCache = [];
+    await renderLeaveReportCalendar();
   }
 }
 
@@ -14838,14 +14978,13 @@ async function onEmpFormSubmit(ev) {
 }
 
 // -------- Calendar View ---------
-async function loadLeaveCalendar() {
+async function renderLeaveReportCalendar() {
   const monthStart = new Date(calendarCurrent.getFullYear(), calendarCurrent.getMonth(), 1);
-  const monthEnd   = new Date(calendarCurrent.getFullYear(), calendarCurrent.getMonth() + 1, 0);
-  const startStr   = monthStart.toLocaleDateString('en-CA');
-  const endStr     = monthEnd.toLocaleDateString('en-CA');
-  const data = await getJSON(`/leave-calendar?start=${startStr}&end=${endStr}`);
-  const map = {};
-  data.forEach(d => { map[d.date] = d.entries; });
+  const monthEnd = new Date(calendarCurrent.getFullYear(), calendarCurrent.getMonth() + 1, 0);
+  const grid = document.getElementById('leaveCalendar');
+  const monthLabel = document.getElementById('calMonth');
+  if (!grid || !monthLabel) return;
+
   let holidaysForCalendar = [];
   try {
     holidaysForCalendar = await fetchHolidays();
@@ -14853,75 +14992,114 @@ async function loadLeaveCalendar() {
     console.error('Failed to fetch holidays for calendar', err);
     holidaysForCalendar = Array.isArray(companyHolidays) ? companyHolidays : [];
   }
+  const holidaySet = new Set(
+    (Array.isArray(holidaysForCalendar) ? holidaysForCalendar : [])
+      .map(h => h?.date)
+      .filter(Boolean)
+      .map(date => String(date).slice(0, 10))
+  );
   const holidayMap = {};
   (Array.isArray(holidaysForCalendar) ? holidaysForCalendar : []).forEach(holiday => {
-    if (!holiday || !holiday.date) return;
-    const iso = String(holiday.date);
+    if (!holiday?.date) return;
+    const iso = String(holiday.date).slice(0, 10);
     if (!holidayMap[iso]) holidayMap[iso] = [];
     holidayMap[iso].push(holiday);
   });
-  const grid = document.getElementById('leaveCalendar');
-  if (!grid) return;
-  document.getElementById('calMonth').textContent = monthStart.toLocaleString('default', {month:'long', year:'numeric'});
+
+  const map = {};
+  leaveReportDetailCache
+    .filter(leaveReportRowMatchesEmployeeFilter)
+    .forEach(row => {
+      expandLeaveRowToCalendarDays(row, holidaySet).forEach(entry => {
+        if (!map[entry.date]) map[entry.date] = [];
+        map[entry.date].push(entry);
+      });
+    });
+
+  Object.keys(map).forEach(date => {
+    map[date].sort((a, b) => {
+      const nameDiff = String(a.row.employeeName).localeCompare(String(b.row.employeeName));
+      if (nameDiff !== 0) return nameDiff;
+      return String(a.row.type).localeCompare(String(b.row.type));
+    });
+  });
+
+  monthLabel.textContent = monthStart.toLocaleString('default', { month: 'long', year: 'numeric' });
   grid.innerHTML = '';
-  const firstDay = new Date(monthStart);
-  const offset = firstDay.getDay();
+  const offset = monthStart.getDay();
   for (let i = 0; i < offset; i++) {
     grid.innerHTML += '<div class="calendar-empty"></div>';
   }
+
   const today = new Date();
-  today.setHours(0,0,0,0);
-  for (let d=1; d<=monthEnd.getDate(); d++) {
-    const date   = new Date(monthStart.getFullYear(), monthStart.getMonth(), d);
+  today.setHours(0, 0, 0, 0);
+  for (let day = 1; day <= monthEnd.getDate(); day++) {
+    const date = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
     const dayRef = new Date(date);
-    dayRef.setHours(0,0,0,0);
-    const dateStr = date.toLocaleDateString('en-CA');
+    dayRef.setHours(0, 0, 0, 0);
+    const dateStr = toLeaveCalendarIso(date);
     const entries = map[dateStr] || [];
     const holidayEntries = holidayMap[dateStr] || [];
-    const future  = dayRef > today;
+    const future = dayRef > today;
     const isToday = dayRef.getTime() === today.getTime();
     const classes = [];
-    if ([1,2,3,4,5].includes(date.getDay())) {
-      classes.push('weekday');
-    }
+    if ([1, 2, 3, 4, 5].includes(date.getDay())) classes.push('weekday');
     if (future) classes.push('future');
     if (isToday) classes.push('calendar-today');
-    const contentParts = [`<div class="calendar-date">${d}</div>`];
+
+    const contentParts = [`<div class="calendar-date">${day}</div>`];
     const titleParts = [];
+
     if (holidayEntries.length) {
       classes.push('calendar-holiday');
       const holidayNames = Array.from(new Set(holidayEntries.map(h => {
         const name = h?.name ? String(h.name).trim() : '';
         return name || 'Holiday';
       })));
-      if (!holidayNames.length) holidayNames.push('Holiday');
       holidayNames.forEach(name => titleParts.push(`Holiday - ${name}`));
-      const labelText = holidayNames.join(', ');
-      const safeLabel = escapeHtml(labelText);
+      const safeLabel = escapeHtml(holidayNames.join(', '));
       contentParts.push(`<div class="calendar-holiday-label"><span class="material-symbols-rounded">celebration</span><span>${safeLabel}</span></div>`);
     }
+
     if (entries.length) {
-      const namesMarkup = entries.map(e => {
-        const rawType = (e.type || '').toString();
+      const namesMarkup = entries.map(entry => {
+        const row = entry.row;
+        const rawType = (row.type || '').toString();
         const typeLabel = capitalize(rawType);
         const typeKey = rawType.replace(/[^a-z0-9]/gi, '').toLowerCase();
         const typeClass = typeKey ? `calendar-type--${typeKey}` : '';
-        if (typeLabel) {
-          titleParts.push(`${e.name} - ${typeLabel}`);
-        } else {
-          titleParts.push(e.name);
-        }
-        const typeMarkup = typeLabel ? `<span class="calendar-type ${typeClass}">${typeLabel}</span>` : '';
-        const entryTitle = typeLabel ? `${e.name} • ${typeLabel}` : e.name;
-        return `<div class="calendar-name" title="${entryTitle}"><span class="calendar-employee">${e.name}</span>${typeMarkup}</div>`;
+        const durationLabel = entry.dayKind === 'half'
+          ? `Half day${getHalfDayPeriod(row) ? ` ${getHalfDayPeriod(row)}` : ''}`
+          : 'Full day';
+        const entryTitle = `${row.employeeName} • ${typeLabel} • ${durationLabel}`;
+        titleParts.push(entryTitle);
+        const typeMarkup = typeLabel
+          ? `<span class="calendar-type ${typeClass}">${escapeHtml(typeLabel)}</span>`
+          : '';
+        const durationMarkup = formatCalendarDurationMarkup(row, entry.dayKind);
+        const statusMarkup = formatCalendarStatusMarkup(row.status);
+        return `<div class="calendar-name" title="${escapeHtml(entryTitle)}">
+          <span class="calendar-employee">${escapeHtml(row.employeeName || '')}</span>
+          <span class="calendar-name__meta">
+            ${typeMarkup}
+            ${durationMarkup}
+            ${statusMarkup}
+          </span>
+        </div>`;
       }).join('');
       contentParts.push(`<div class="calendar-names">${namesMarkup}</div>`);
     }
+
     const title = titleParts.join('\n');
     const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
     const classAttr = classes.length ? ` class="${classes.join(' ')}"` : '';
     grid.innerHTML += `<div${classAttr}${titleAttr}>${contentParts.join('')}</div>`;
   }
+}
+
+async function loadLeaveCalendar() {
+  readLeaveReportFiltersFromDom();
+  await renderLeaveReportCalendar();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
